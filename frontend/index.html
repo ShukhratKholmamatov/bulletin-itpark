@@ -1,0 +1,55 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>IT Park News</title>
+<style>
+  body { font-family: Arial, sans-serif; margin: 20px; }
+  .news-card { border: 1px solid #ccc; padding: 15px; margin-bottom: 10px; border-radius: 6px; }
+  button { margin-top: 5px; }
+  select, input { margin-right: 10px; padding: 5px; }
+  .tab { display: inline-block; margin-right: 15px; cursor: pointer; color: blue; text-decoration: underline; }
+  .news-card video { max-height: 300px; margin-top: 10px; border-radius: 6px; }
+</style>
+</head>
+<body>
+<h1>IT Park Bulletin</h1>
+
+<div>
+  <span class="tab" onclick="showTab('all')">All News</span>
+  <span class="tab" onclick="showTab('saved')">Saved News</span>
+</div>
+
+<div id="filters">
+  <label>Country:</label>
+  <select id="country">
+    <option value="">All</option>
+    <option value="Global">Global</option>
+    <option value="Japan">Japan</option>
+    <option value="USA">USA</option>
+    <option value="Poland">Poland</option>
+    <option value="Kazakhstan">Kazakhstan</option>
+    <option value="Tajikistan">Tajikistan</option>
+    <option value="Russia">Russia</option>
+  </select>
+
+  <label>Topic:</label>
+  <select id="topic">
+    <option value="">All</option>
+    <option value="AI">AI</option>
+    <option value="Startup">Startup</option>
+    <option value="Tech">Tech</option>
+    <option value="General">General</option>
+  </select>
+
+  <input id="keyword" placeholder="Search keyword..." />
+  <button onclick="loadNews()">Search</button>
+</div>
+
+<h2 id="tab-title">News</h2>
+<div id="news"></div>
+
+<script src="script.js"></script>
+</body>
+</html>
