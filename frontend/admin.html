@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Admin Dashboard</title>
+<style>
+  body { font-family: Arial, sans-serif; margin: 20px; }
+  table { width: 100%; border-collapse: collapse; }
+  th, td { padding: 8px; border: 1px solid #ccc; }
+  th { background-color: #f0f0f0; }
+</style>
+</head>
+<body>
+  <h1>Admin Dashboard</h1>
+  <table id="admin-table">
+    <thead>
+      <tr>
+        <th>User ID</th>
+        <th>Name</th>
+        <th>Email</th>
+        <th>Saved News ID</th>
+        <th>Saved News Title</th>
+      </tr>
+    </thead>
+    <tbody></tbody>
+  </table>
+
+  <script>
+    async function loadAdminData() {
+      const res = await fetch('/admin/data');
+      const data = await res.json();
+      const tbody = document.querySelector('#admin-table tbody');
+      tbody.innerHTML = '';
+
+      data.forEach(row => {
+        const tr = document.createElement('tr');
+        tr.innerHTML = `
+          <td>${row.user_id}</td>
+          <td>${row.name}</td>
+          <td>${row.email}</td>
+          <td>${row.news_id || '-'}</td>
+          <td>${row.title || '-'}</td>
+        `;
+        tbody.appendChild(tr);
+      });
+    }
+
+    window.onload = loadAdminData;
+  </script>
+</body>
+</html>

@@ -1,34 +1,46 @@
+// config/passport.js
 const passport = require('passport');
 const GoogleStrategy = require('passport-google-oauth20').Strategy;
-
-// For simplicity, store users in memory (you can move to DB later)
-const users = [];
+const db = require('./db');
 
 passport.use(new GoogleStrategy({
     clientID: process.env.GOOGLE_CLIENT_ID,
     clientSecret: process.env.GOOGLE_CLIENT_SECRET,
-    callbackURL: "http://localhost:5000/auth/google/callback"
+    callbackURL: "http://localhost:3000/auth/google/callback"
   },
   function(accessToken, refreshToken, profile, done) {
-    // Save or find user
-    let user = users.find(u => u.id === profile.id);
-    if (!user) {
-      user = {
-        id: profile.id,
-        name: profile.displayName,
-        email: profile.emails[0].value
-      };
-      users.push(user);
-    }
-    return done(null, user);
+    // Check if user exists in DB
+    db.get('SELECT * FROM users WHERE google_id = ?', [profile.id], (err, row) => {
+      if (err) return done(err);
+
+      if (row) {
+        return done(null, row); // user exists
+      } else {
+        // Insert new user
+        db.run(
+          'INSERT INTO users (google_id, name, email) VALUES (?, ?, ?)',
+          [profile.id, profile.displayName, profile.emails[0].value],
+          function(err) {
+            if (err) return done(err);
+            // Fetch newly inserted user
+            db.get('SELECT * FROM users WHERE id = ?', [this.lastID], (err2, newUser) => {
+              return done(null, newUser);
+            });
+          }
+        );
+      }
+    });
   }
 ));
 
 passport.serializeUser(function(user, done) {
-  done(null, user.id);
+  done(null, user.id); // use DB id
 });
 
 passport.deserializeUser(function(id, done) {
-  const user = users.find(u => u.id === id);
-  done(null, user || null);
+  db.get('SELECT * FROM users WHERE id = ?', [id], (err, row) => {
+    done(err, row || null);
+  });
 });
+
+module.exports = passport;

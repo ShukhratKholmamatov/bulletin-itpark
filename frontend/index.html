@@ -3,55 +3,52 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>IT Park News</title>
-<style>
-  body { font-family: Arial, sans-serif; margin: 20px; }
-  .news-card { border: 1px solid #ccc; padding: 15px; margin-bottom: 10px; border-radius: 6px; }
-  button { margin-top: 5px; }
-  select, input { margin-right: 10px; padding: 5px; }
-  .tab { display: inline-block; margin-right: 15px; cursor: pointer; color: blue; text-decoration: underline; }
-  .news-card video { max-height: 300px; margin-top: 10px; border-radius: 6px; }
-</style>
+<title>IT Park Bulletin</title>
+<link rel="stylesheet" href="style.css">
 </head>
 <body>
-  <button id="loginBtn" onclick="loginWithGoogle()">Sign in with Google</button>
-<button id="logoutBtn" onclick="logout()" style="display:none;">Sign out</button>
 
-<h1>IT Park Bulletin</h1>
+<header>
+  <h1>IT Park Bulletin</h1>
+  <div id="user-info">
+    <button id="auth-btn" onclick="handleAuthClick()">Sign in with Google</button>
+    <span id="user-name"></span>
+  </div>
+</header>
 
-<div>
-  <span class="tab" onclick="showTab('all')">All News</span>
-  <span class="tab" onclick="showTab('saved')">Saved News</span>
-</div>
+<nav>
+  <button onclick="showTab('all')" id="tab-all">All News</button>
+  <button onclick="showTab('saved')" id="tab-saved">Saved News</button>
+</nav>
 
-<div id="filters">
-  <label>Country:</label>
-  <select id="country">
-    <option value="">All</option>
-    <option value="Global">Global</option>
-    <option value="Japan">Japan</option>
-    <option value="USA">USA</option>
-    <option value="Poland">Poland</option>
-    <option value="Kazakhstan">Kazakhstan</option>
-    <option value="Tajikistan">Tajikistan</option>
-    <option value="Russia">Russia</option>
-  </select>
-
-  <label>Topic:</label>
-  <select id="topic">
-    <option value="">All</option>
+<section id="filters">
+  <select id="topic-filter">
+    <option value="">All Topics</option>
     <option value="AI">AI</option>
     <option value="Startup">Startup</option>
     <option value="Tech">Tech</option>
     <option value="General">General</option>
   </select>
 
-  <input id="keyword" placeholder="Search keyword..." />
-  <button onclick="loadNews()">Search</button>
-</div>
+  <select id="department-filter">
+    <option value="">All Departments</option>
+    <option value="Data">Data</option>
+    <option value="Strategy">Strategy</option>
+    <option value="Development">Development</option>
+  </select>
 
-<h2 id="tab-title">News</h2>
-<div id="news"></div>
+  <input id="keyword" placeholder="Search keyword..." />
+  <button onclick="loadNews()">Search</button> <!-- Added Search button -->
+</section>
+
+
+<main id="news-container">
+  <!-- News cards will appear here -->
+</main>
+
+<div id="load-more-container">
+  <button id="load-more-btn" style="display:none;">Load more</button>
+</div>
 
 <script src="script.js"></script>
 </body>
