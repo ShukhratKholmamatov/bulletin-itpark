@@ -3,6 +3,7 @@ const express = require('express');
 const session = require('express-session');
 const passport = require('./config/passport');
 const path = require('path');
+const fetch = require('node-fetch'); // npm install node-fetch@2
 const db = require('./config/db');
 
 const app = express();
@@ -20,25 +21,18 @@ function normalizeText(text = '') {
 }
 
 /* =========================
-   🔑 DEPARTMENT KEYWORD ROOTS
+   🔑 DEPARTMENT KEYWORDS
 ========================= */
 const departmentKeywordRoots = {
   "Startap, investitsiyalar va mahalliy IT xizmatlarni rivojlantirish": [
-    // startup
     "startup", "startap", "стартап",
-
-    // investment
     "invest", "investment", "investitsiya", "инвест",
-
-    // IT & tech
     "it", "software", "digital", "cloud", "ai", "saas",
     "texnolog", "raqamli", "dastur",
-
-    // business & innovation
     "entrepreneur", "biznes", "tadbirkor",
-    "innovation", "innovatsiya", "инновац"
+    "innovation", "innovatsiya", "инновац",
+    "Miami", "Indiana"
   ],
-
   "Investitsiyalar bilan ishlash bo‘limi": [
     "invest", "investment", "investitsiya", "инвест",
     "capital", "kapital",
@@ -59,11 +53,10 @@ app.use(session({
 
 app.use(passport.initialize());
 app.use(passport.session());
-
 app.use(express.static(path.join(__dirname, '../frontend')));
 
 /* =========================
-   🔐 AUTH ROUTES
+   🔐 AUTH
 ========================= */
 app.get('/auth/google',
   passport.authenticate('google', { scope: ['profile', 'email'] })
@@ -83,121 +76,149 @@ app.get('/auth/current', (req, res) => {
   res.status(401).json({ user: null });
 });
 
+
 /* =========================
-   📰 NEWS ROUTES
+   📰 NEWS ROUTE (MULTI-API + IMAGES + RELEVANCE)
 ========================= */
-app.get('/news', (req, res) => {
-  const { topic, department, keyword, userId } = req.query;
+app.get('/news', async (req, res) => {
+  const { topic = '', department = '', keyword = '', userId } = req.query;
 
-  let sql = 'SELECT * FROM news WHERE 1=1';
-  const params = [];
+  try {
+    const gnewsKey = process.env.GNEWS_API_KEY;
+    const currentsKey = process.env.CURRENTS_API_KEY;
 
-  if (topic) {
-    sql += ' AND topic = ?';
-    params.push(topic);
-  }
+    if (!gnewsKey && !currentsKey) {
+      return res.status(500).json({ error: 'No API keys set in .env' });
+    }
 
-  if (department) {
-    sql += ' AND department = ?';
-    params.push(department);
-  }
+    const itKeywords = [
+      'ai', 'artificial intelligence', 'iot', 'internet of things', 'cloud', 'software',
+      'saas', 'startup', 'venture', 'tech', 'technology', 'digital', 'innovation',
+      'usa', 'silicon valley', 'data', 'blockchain', 'cybersecurity', 'machine learning',
+      'ml', 'deep learning', 'robotics', 'automation'
+    ];
 
-  if (keyword) {
-    sql += ' AND (title LIKE ? OR description LIKE ?)';
-    params.push(`%${keyword}%`, `%${keyword}%`);
-  }
+    const departmentKeywordRoots = {
+      "Startap, investitsiyalar va mahalliy IT xizmatlarni rivojlantirish": [
+        "startup", "startap", "стартап",
+        "invest", "investment", "investitsiya", "инвест",
+        "it", "software", "digital", "cloud", "ai", "saas",
+        "texnolog", "raqamli", "dastur",
+        "entrepreneur", "biznes", "tadbirkor",
+        "innovation", "innovatsiya", "инновац",
+        "Miami", "Indiana"
+      ],
+      "Investitsiyalar bilan ishlash bo‘limi": [
+        "invest", "investment", "investitsiya", "инвест",
+        "capital", "kapital",
+        "investor", "инвестор",
+        "finance", "moliyav", "финанс"
+      ]
+    };
 
-  db.all(sql, params, (err, rows) => {
-    if (err) return res.status(500).json({ error: err.message });
+    let allArticles = [];
 
-    rows.forEach(row => {
-      const fullText = normalizeText(`${row.title} ${row.description}`);
-      const titleText = normalizeText(row.title);
+    // ====== GNEWS ======
+    if (gnewsKey) {
+      const gQuery = encodeURIComponent(topic || 'IT');
+      const gUrl = `https://gnews.io/api/v4/search?q=${gQuery}&token=${gnewsKey}&lang=en&max=50`;
+      const gRes = await fetch(gUrl);
+      const gData = await gRes.json();
+
+      if (gData.articles) {
+        allArticles.push(...gData.articles.map(a => ({
+          id: a.url,
+          title: a.title,
+          description: a.description,
+          url: a.url,
+          image: a.image || null,
+          source: a.source.name,
+          topic: topic || 'General',
+          department: department || 'External',
+          content_type: 'article'
+        })));
+      }
+    }
+
+    // ====== CURRENTS ======
+    if (currentsKey) {
+      const cQuery = encodeURIComponent(topic || 'IT');
+      const cUrl = `https://api.currentsapi.services/v1/search?keywords=${cQuery}&apiKey=${currentsKey}&language=en`;
+      const cRes = await fetch(cUrl);
+      const cData = await cRes.json();
+
+      if (cData.news) {
+        allArticles.push(...cData.news.map(a => ({
+          id: a.url,
+          title: a.title,
+          description: a.description,
+          url: a.url,
+          image: a.image || null,
+          source: a.author || 'Currents API',
+          topic: topic || 'General',
+          department: department || 'External',
+          content_type: 'article'
+        })));
+      }
+    }
+
+    // ====== SCORING RELEVANCE ======
+    const newsWithRelevance = allArticles.map(a => {
+      const fullText = normalizeText(`${a.title} ${a.description}`);
+      const titleText = normalizeText(a.title);
 
       let relevance = 0;
 
-      // Department-based relevance
+      // Department keywords
       if (department && departmentKeywordRoots[department]) {
         departmentKeywordRoots[department].forEach(root => {
           if (fullText.includes(root)) relevance += 2;
-          if (titleText.includes(root)) relevance += 3; // title boost
+          if (titleText.includes(root)) relevance += 3;
         });
       }
 
-      // User keyword boost
+      // General IT keywords
+      itKeywords.forEach(k => {
+        if (fullText.includes(k)) relevance += 2;
+        if (titleText.includes(k)) relevance += 3;
+      });
+
+      // User keyword filter
       if (keyword) {
-        keyword
-          .split(';')
-          .map(k => k.trim().toLowerCase())
-          .forEach(k => {
-            if (fullText.includes(k)) relevance += 3;
-          });
+        keyword.split(';').map(k => k.trim().toLowerCase()).forEach(k => {
+          if (fullText.includes(k)) relevance += 3;
+        });
       }
 
-      // Base relevance so news never disappears
-      if (relevance === 0) relevance = 0.5;
+      return { ...a, relevance };
+    })
+    .filter(n => n.relevance > 0) // ✅ remove irrelevant articles
+    .sort((a, b) => b.relevance - a.relevance); // ✅ sort by highest relevance
 
-      row.relevance = relevance;
-    });
-
-    // Sort by relevance
-    rows.sort((a, b) => b.relevance - a.relevance);
-
-    // Mark saved news if userId provided
+    // ====== SAVED NEWS ======
     if (userId) {
-      db.all(
-        'SELECT news_id FROM saved_news WHERE user_id = ?',
-        [userId],
-        (err, savedRows) => {
-          if (err) return res.status(500).json({ error: err.message });
-
-          const savedIds = savedRows.map(r => r.news_id);
-          rows.forEach(r => r.saved = savedIds.includes(r.id));
-
-          res.json(rows);
-        }
-      );
+      db.all('SELECT news_id FROM saved_news WHERE user_id = ?', [userId], (err, savedRows) => {
+        if (err) return res.status(500).json({ error: err.message });
+        const savedIds = savedRows.map(r => r.news_id);
+        newsWithRelevance.forEach(n => n.saved = savedIds.includes(n.id));
+        res.json(newsWithRelevance);
+      });
     } else {
-      res.json(rows);
+      res.json(newsWithRelevance);
     }
-  });
+
+  } catch (err) {
+    console.error('Failed to fetch news from APIs:', err);
+    res.status(500).json({ error: 'Failed to fetch news from APIs', details: err.message });
+  }
 });
 
-/* =========================
-   ⭐ SAVE / UNSAVE NEWS
-========================= */
-app.post('/news/save', (req, res) => {
-  if (!req.user) return res.status(401).json({ error: 'Login required' });
 
-  db.run(
-    'INSERT OR IGNORE INTO saved_news (user_id, news_id) VALUES (?, ?)',
-    [req.user.id, req.body.newsId],
-    err => {
-      if (err) return res.status(500).json({ error: err.message });
-      res.json({ success: true });
-    }
-  );
-});
-
-app.post('/news/unsave', (req, res) => {
-  if (!req.user) return res.status(401).json({ error: 'Login required' });
-
-  db.run(
-    'DELETE FROM saved_news WHERE user_id = ? AND news_id = ?',
-    [req.user.id, req.body.newsId],
-    err => {
-      if (err) return res.status(500).json({ error: err.message });
-      res.json({ success: true });
-    }
-  );
-});
 
 /* =========================
    🛠 ADMIN
 ========================= */
-app.get('/admin', (req, res) => {
-  res.sendFile(path.join(__dirname, '../frontend/admin.html'));
-});
+app.get('/admin', (req, res) => res.sendFile(path.join(__dirname, '../frontend/admin.html')));
 
 app.get('/admin/data', (req, res) => {
   const sql = `
@@ -213,12 +234,11 @@ app.get('/admin/data', (req, res) => {
 });
 
 /* =========================
-  FRONTEND
+   FRONTEND
 ========================= */
-app.get('/', (req, res) => {
-  res.sendFile(path.join(__dirname, '../frontend/index.html'));
-});
+app.get('/', (req, res) => res.sendFile(path.join(__dirname, '../frontend/index.html')));
 
-app.listen(PORT, () => {
-  console.log(`🚀 Server running at http://localhost:${PORT}`);
-});
+/* =========================
+   START SERVER
+========================= */
+app.listen(PORT, () => console.log(`🚀 Server running at http://localhost:${PORT}`));

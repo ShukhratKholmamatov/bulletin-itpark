@@ -21,6 +21,9 @@
   <button onclick="showTab('saved')" id="tab-saved">Saved News</button>
 </nav>
 
+<!-- MISSING: tab-title -->
+<h2 id="tab-title">News</h2>
+
 <section id="filters">
   <select id="topic-filter">
     <option value="">All Topics</option>
@@ -38,9 +41,8 @@
   </select>
 
   <input id="keyword" placeholder="Search keyword..." />
-  <button onclick="loadNews()">Search</button> <!-- Added Search button -->
+  <button onclick="loadNews()">Search</button>
 </section>
-
 
 <main id="news-container">
   <!-- News cards will appear here -->
