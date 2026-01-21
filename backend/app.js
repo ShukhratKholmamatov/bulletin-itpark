@@ -5,6 +5,8 @@ const passport = require('./config/passport');
 const path = require('path');
 const fetch = require('node-fetch'); // npm install node-fetch@2
 const db = require('./config/db');
+const PDFDocument = require('pdfkit');
+
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -212,6 +214,125 @@ app.get('/news', async (req, res) => {
     res.status(500).json({ error: 'Failed to fetch news from APIs', details: err.message });
   }
 });
+
+
+/* =========================
+   📄 GENERATE PDF REPORT
+========================= */
+app.post('/news/report', async (req, res) => {
+  try {
+    const { news, period, events } = req.body;
+    if (!news || news.length === 0)
+      return res.status(400).json({ error: 'No news selected' });
+
+    const doc = new PDFDocument({ margin: 50, size: 'A4' });
+    let buffers = [];
+    doc.on('data', buffers.push.bind(buffers));
+    doc.on('end', () => {
+      const pdfData = Buffer.concat(buffers);
+      res.set({
+        'Content-Type': 'application/pdf',
+        'Content-Disposition': 'attachment; filename="Weekly-IT-Bulletin.pdf"',
+        'Content-Length': pdfData.length,
+      });
+      res.send(pdfData);
+    });
+
+    // ===== LOAD FONTS =====
+    doc.registerFont('Cambria', path.join(__dirname, 'fonts/CAMBRIAZ.TTF'));
+    doc.registerFont('Cambria-Bold', path.join(__dirname, 'fonts/CAMBRIAB.TTF'));
+    doc.registerFont('Cambria-Italic', path.join(__dirname, 'fonts/CAMBRIAI.TTF'));
+
+    // ===== COVER PAGE =====
+    doc.font('Cambria-Bold').fontSize(18).text('Weekly Bulletin of IT News', { align: 'center' });
+    doc.font('Cambria-Bold').fontSize(16).text('and Articles', { align: 'center' });
+    doc.moveDown(0.5);
+    doc.font('Cambria').fontSize(12).text(`(${period?.from || 'N/A'} – ${period?.to || 'N/A'})`, { align: 'center' });
+    doc.moveDown(0.3);
+    doc.text('Department of Strategy and Analysis', { align: 'center' });
+    doc.text('Tashkent, January 2026', { align: 'center' });
+    doc.addPage();
+
+    // ===== TABLE OF CONTENTS =====
+    doc.font('Cambria-Bold').fontSize(14).text('Table of Contents', { underline: true });
+    doc.moveDown(0.5);
+    news.forEach((item, idx) => {
+      doc.font('Cambria').fontSize(13).text(`${idx + 1}. ${item.title}`);
+    });
+    doc.addPage();
+
+    // ===== NEWS SECTIONS =====
+    for (let i = 0; i < news.length; i++) {
+      const item = news[i];
+      doc.font('Cambria-Bold').fontSize(14).fillColor('black').text(`${i + 1}. ${item.title}`);
+      doc.moveDown(0.2);
+      doc.font('Cambria').fontSize(10).fillColor('black')
+         .text(`Source: ${item.source || 'Unknown'} | Topic: ${item.topic || 'General'} | Department: ${item.department || 'General'}`);
+      doc.moveDown(0.3);
+
+      const yStart = doc.y;
+
+      // ===== IMAGE LEFT, TEXT RIGHT =====
+      const textX = 180;
+      if (item.image) {
+        try {
+          const imgRes = await fetch(item.image);
+          if (imgRes.ok) {
+            const imgBuffer = await imgRes.buffer();
+            doc.image(imgBuffer, doc.x, doc.y, { width: 120, height: 80 });
+          }
+        } catch (err) {
+          console.log('Image load failed:', err);
+        }
+      }
+
+      // ===== TEXT STYLING =====
+      function styleText(text) {
+        const words = text.split(/(\s+)/);
+        words.forEach(word => {
+          if (/^\d+/.test(word)) doc.fillColor('red'); // numbers
+          else if (/^[A-Z][a-zA-Z]+$/.test(word)) doc.fillColor('blue'); // names/companies/places
+          else doc.fillColor('black');
+
+          doc.font('Cambria').fontSize(13).text(word, { continued: true });
+        });
+        doc.text(''); // end line
+      }
+
+      doc.text('', textX, yStart, { width: 370, align: 'justify' });
+      styleText(item.description || 'No description available.');
+
+      // ===== FULL ARTICLE LINK =====
+      if (item.url) {
+        doc.moveDown(0.5);
+        doc.font('Cambria-Italic').fontSize(12).fillColor('black')
+           .text(`(Read full article at --> ${item.url})`);
+      }
+
+      doc.addPage();
+    }
+
+    // ===== EVENTS TABLE =====
+    if (events && events.length) {
+      doc.font('Cambria-Bold').fontSize(14).fillColor('black').text('Calendar of Upcoming Events', { underline: true });
+      doc.moveDown(0.5);
+
+      events.forEach((ev, idx) => {
+        doc.font('Cambria-Bold').fontSize(12).fillColor('black')
+           .text(`${idx + 1}. ${ev.name} | ${ev.date} | ${ev.location}`);
+        doc.font('Cambria').fontSize(10).fillColor('black').text(`${ev.description}`);
+        doc.fillColor('blue').text(ev.url, { link: ev.url });
+        doc.moveDown(0.5);
+      });
+    }
+
+    doc.end();
+  } catch (err) {
+    console.error('PDF generation failed:', err);
+    res.status(500).json({ error: 'Failed to generate PDF report' });
+  }
+});
+
 
 
 

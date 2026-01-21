@@ -6,6 +6,8 @@ let limit = 20;
 let offset = 0;
 let isLoading = false;
 
+let selectedNews = [];
+
 // Auto refresh interval (10 minutes)
 const AUTO_REFRESH_MS = 10 * 60 * 1000;
 
@@ -52,6 +54,15 @@ function logout() {
 }
 
 /* =========================
+   🟢 TOGGLE GENERATE BUTTON
+========================= */
+function toggleGenerateButton() {
+  const box = document.getElementById('report-actions');
+  if (!box) return;
+  box.style.display = selectedNews.length > 0 ? 'block' : 'none';
+}
+
+/* =========================
    📑 TABS
 ========================= */
 function showTab(tab) {
@@ -71,6 +82,8 @@ function showTab(tab) {
 ========================= */
 function resetNews() {
   offset = 0;
+  selectedNews = [];
+  toggleGenerateButton();
   const container = document.getElementById('news-container');
   if (container) container.innerHTML = '';
 }
@@ -88,17 +101,34 @@ function createCard(container, item) {
   card.style.boxShadow = '0 2px 5px rgba(0,0,0,0.1)';
   card.style.backgroundColor = '#fff';
 
-  // Image (if available)
+  /* ===== CHECKBOX ===== */
+  const checkbox = document.createElement('input');
+  checkbox.type = 'checkbox';
+  checkbox.style.marginRight = '10px';
+
+  checkbox.addEventListener('change', () => {
+    if (checkbox.checked) {
+      selectedNews.push(item);
+    } else {
+      selectedNews = selectedNews.filter(n => n.id !== item.id);
+    }
+    toggleGenerateButton();
+  });
+
+  /* ===== IMAGE ===== */
   let contentHTML = '';
   if (item.image) {
-    contentHTML += `<img src="${item.image}" alt="${item.title}" 
-                     style="width:100%; max-height:200px; object-fit:cover; border-radius:5px; margin-bottom:10px;">`;
+    contentHTML += `
+      <img src="${item.image}" alt="${item.title}"
+        style="width:100%; max-height:200px; object-fit:cover;
+        border-radius:5px; margin-bottom:10px;">
+    `;
   }
 
-  // Description
+  /* ===== DESCRIPTION ===== */
   contentHTML += `<p>${item.description || ''}</p>`;
 
-  // Video support
+  /* ===== LINK / VIDEO ===== */
   if (item.content_type === 'video') {
     contentHTML += `
       <video width="100%" controls style="margin-top:10px;">
@@ -111,31 +141,38 @@ function createCard(container, item) {
 
   const isSaved = item.saved === true;
 
-  // Save/Unsave button
+  /* ===== SAVE BUTTON ===== */
   const saveButton = currentUser
     ? `<button onclick="${isSaved ? 'unsaveNews' : 'saveNews'}('${item.id}', this)"
-               style="margin-top:10px; padding:5px 10px; cursor:pointer;">
+         style="margin-top:10px; padding:5px 10px; cursor:pointer;">
          ${isSaved ? 'Unsave' : 'Save'}
        </button>`
     : `<p style="opacity:0.6; margin-top:10px;">Login to save news</p>`;
 
-  // Card inner HTML
   card.innerHTML = `
-    <h3 style="margin:5px 0;">${item.title}</h3>
+    <div style="display:flex; align-items:center; margin-bottom:5px;">
+      <span></span>
+      <h3 style="margin:0;">${item.title}</h3>
+    </div>
+
     <p style="font-size:12px; color:#555;">
       <strong>Topic:</strong> ${item.topic || 'General'} |
       <strong>Department:</strong> ${item.department || 'General'} |
-      <strong>Source:</strong> ${item.source || 'Unknown'} |
-      <strong>Country:</strong> ${item.country || 'Unknown'}
+      <strong>Source:</strong> ${item.source || 'Unknown'}
     </p>
+
     ${contentHTML}
-    <p class="relevance" style="font-size:12px; color:#888;">Relevance: ${item.relevance || 0}</p>
+
+    <p style="font-size:12px; color:#888;">Relevance: ${item.relevance}</p>
+
     ${saveButton}
   `;
 
+  // Insert checkbox at the very start of card
+  card.prepend(checkbox);
+
   container.appendChild(card);
 }
-
 
 /* =========================
    ➕ LOAD MORE BUTTON
@@ -259,3 +296,27 @@ window.onload = async () => {
   await fetchCurrentUser();
   showTab('all');
 };
+
+const generateBtn = document.getElementById('generate-report-btn');
+generateBtn.addEventListener('click', async () => {
+  if (!selectedNews.length) return alert('Select at least one news item!');
+
+  const period = { from: '2026-01-01', to: '2026-01-20' }; // optional
+  const response = await fetch('/news/report', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ news: selectedNews, period })
+  });
+
+  if (!response.ok) return alert('Failed to generate PDF');
+
+  const blob = await response.blob();
+  const url = window.URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = 'IT-Park-News-Report.pdf';
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+});
+
