@@ -7,79 +7,240 @@ let offset = 0;
 let isLoading = false;
 
 let selectedNews = [];
-
-// Auto refresh interval (10 minutes)
 const AUTO_REFRESH_MS = 10 * 60 * 1000;
+
+/* =========================
+   📊 CHARTS VARS
+========================= */
+let topicChartInstance = null;
+let sourceChartInstance = null;
+
 
 /* =========================
    👤 AUTH
 ========================= */
 async function fetchCurrentUser() {
-  try {
-    const res = await fetch('/auth/current', { credentials: 'include' });
-    if (res.ok) {
-      currentUser = await res.json();
-      const userNameEl = document.getElementById('user-name');
-      if (userNameEl) userNameEl.innerText = `Hello, ${currentUser.name}`;
-    } else {
-      currentUser = null;
-      const userNameEl = document.getElementById('user-name');
-      if (userNameEl) userNameEl.innerText = '';
+    try {
+        const res = await fetch('/auth/current', { credentials: 'include' });
+        if (res.ok) {
+            const user = await res.json();
+            currentUser = user;
+            
+            // Update UI
+            if(document.getElementById('user-name')) document.getElementById('user-name').innerText = user.name;
+            if(document.getElementById('user-dept')) document.getElementById('user-dept').innerText = user.department || 'General';
+            
+            const avatarEl = document.getElementById('user-avatar');
+            if(avatarEl) avatarEl.src = user.photo_url || `https://ui-avatars.com/api/?name=${user.name}&background=7dba28&color=fff`;
+            
+            if(document.getElementById('user-info')) document.getElementById('user-info').style.display = 'flex';
+            if(document.getElementById('login-overlay')) document.getElementById('login-overlay').classList.add('hidden');
+            document.body.classList.remove('auth-required');
+
+            loadNews();
+        } else {
+            showLoginWall();
+        }
+    } catch (err) {
+        showLoginWall();
     }
-  } catch {
+}
+
+function showLoginWall() {
     currentUser = null;
-    const userNameEl = document.getElementById('user-name');
-    if (userNameEl) userNameEl.innerText = '';
-  }
-  updateAuthButton();
-}
-
-function updateAuthButton() {
-  const btn = document.getElementById('auth-btn');
-  if (!btn) return;
-  btn.innerText = currentUser ? 'Sign Out' : 'Sign in with Google';
-}
-
-function handleAuthClick() {
-  if (currentUser) logout();
-  else loginWithGoogle();
-}
-
-function loginWithGoogle() {
-  window.location.href = '/auth/google';
-}
-
-function logout() {
-  window.location.href = '/auth/logout';
+    document.body.classList.add('auth-required');
+    if(document.getElementById('user-info')) document.getElementById('user-info').style.display = 'none';
+    if(document.getElementById('login-overlay')) document.getElementById('login-overlay').classList.remove('hidden');
 }
 
 /* =========================
-   🟢 TOGGLE GENERATE BUTTON
+   🔐 AUTH UI LOGIC
 ========================= */
-function toggleGenerateButton() {
-  const box = document.getElementById('report-actions');
-  if (!box) return;
-  box.style.display = selectedNews.length > 0 ? 'block' : 'none';
+function toggleAuthMode(mode) {
+    const loginForm = document.getElementById('form-login');
+    const regForm = document.getElementById('form-register');
+    const btnLogin = document.getElementById('btn-show-login');
+    const btnReg = document.getElementById('btn-show-register');
+
+    if (mode === 'login') {
+        loginForm.style.display = 'block';
+        regForm.style.display = 'none';
+        btnLogin.classList.add('active');
+        btnReg.classList.remove('active');
+    } else {
+        loginForm.style.display = 'none';
+        regForm.style.display = 'block';
+        btnLogin.classList.remove('active');
+        btnReg.classList.add('active');
+    }
+}
+
+async function handleManualLogin() {
+    const email = document.getElementById('login-email').value;
+    const password = document.getElementById('login-password').value;
+    if(!email || !password) return alert("Please fill all fields");
+
+    const res = await fetch('/auth/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, password })
+    });
+
+    if(res.ok) window.location.reload();
+    else {
+        const data = await res.json();
+        alert(data.error || 'Login failed');
+    }
+}
+
+async function handleRegister() {
+    const name = document.getElementById('reg-name').value;
+    const email = document.getElementById('reg-email').value;
+    const department = document.getElementById('reg-dept').value;
+    const password = document.getElementById('reg-password').value;
+
+    if(!name || !email || !password) return alert("Please fill all fields");
+
+    const res = await fetch('/auth/register', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name, email, department, password })
+    });
+
+    if(res.ok) {
+        alert("Account Created! Logging in...");
+        window.location.reload();
+    } else {
+        const data = await res.json();
+        alert(data.error || 'Registration failed');
+    }
+}
+function loginWithGoogle() { window.location.href = '/auth/google'; }
+function logout() { window.location.href = '/auth/logout'; }
+
+
+/* =========================
+   📊 CHARTS
+========================= */
+function renderDashboard(newsData) {
+    const canvasTopic = document.getElementById('topicChart');
+    const canvasSource = document.getElementById('sourceChart');
+    if (!canvasTopic || !canvasSource) return;
+
+    const ctxTopic = canvasTopic.getContext('2d');
+    const ctxSource = canvasSource.getContext('2d');
+
+    const topics = {};
+    const sources = {};
+    
+    newsData.forEach(item => {
+        const t = item.topic || 'General';
+        topics[t] = (topics[t] || 0) + 1;
+        
+        const s = item.source || 'Unknown';
+        sources[s] = (sources[s] || 0) + 1;
+    });
+
+    const sortedSources = Object.entries(sources).sort((a, b) => b[1] - a[1]).slice(0, 5);
+
+    if (topicChartInstance) topicChartInstance.destroy();
+    if (sourceChartInstance) sourceChartInstance.destroy();
+
+    topicChartInstance = new Chart(ctxTopic, {
+        type: 'doughnut',
+        data: {
+            labels: Object.keys(topics),
+            datasets: [{
+                data: Object.values(topics),
+                backgroundColor: ['#7dba28', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6'],
+                borderWidth: 0
+            }]
+        },
+        options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'right' } } }
+    });
+
+    sourceChartInstance = new Chart(ctxSource, {
+        type: 'bar',
+        data: {
+            labels: sortedSources.map(s => s[0]),
+            datasets: [{
+                label: 'Articles Count',
+                data: sortedSources.map(s => s[1]),
+                backgroundColor: '#64748b',
+                borderRadius: 4
+            }]
+        },
+        options: { responsive: true, maintainAspectRatio: false, scales: { y: { beginAtZero: true } } }
+    });
 }
 
 /* =========================
-   📑 TABS
+   📑 TAB LOGIC
 ========================= */
 function showTab(tab) {
   currentTab = tab;
-  const tabTitle = document.getElementById('tab-title');
-  if (tabTitle) tabTitle.innerText = tab === 'all' ? 'News' : 'Saved News';
+  
+  // UI Update
+  document.querySelectorAll('.sidebar-nav button').forEach(b => b.classList.remove('active'));
+  const btn = document.getElementById(`tab-${tab}`);
+  if(btn) btn.classList.add('active');
 
+  const newsContainer = document.getElementById('news-container');
   const filters = document.getElementById('filters');
-  if (filters) filters.style.display = tab === 'all' ? 'flex' : 'none';
+  const dashContainer = document.getElementById('dashboard-container');
+  const nlaContainer = document.getElementById('nla-container');
+  const statsContainer = document.getElementById('stats-container');
+  const tabTitle = document.getElementById('tab-title');
+  const loadMore = document.getElementById('load-more-container');
 
-  resetNews();
-  loadNews();
+  // Hide All
+  if(newsContainer) newsContainer.style.display = 'none';
+  if(dashContainer) dashContainer.style.display = 'none';
+  if(nlaContainer) nlaContainer.style.display = 'none';
+  if(statsContainer) statsContainer.style.display = 'none';
+  if(filters) filters.style.display = 'flex'; 
+  if(loadMore) loadMore.style.display = 'none';
+
+  if (tab === 'dashboard') {
+    if(tabTitle) tabTitle.innerText = 'Market Analytics';
+    if(dashContainer) dashContainer.style.display = 'block';
+    if(filters) filters.style.display = 'none';
+    const topic = document.getElementById('topic-filter')?.value || '';
+    const query = new URLSearchParams({ limit: 50, topic });
+    fetch(`/news?${query.toString()}`).then(r => r.json()).then(data => renderDashboard(data));
+
+  } else if (tab === 'saved') {
+    if(tabTitle) tabTitle.innerText = 'Saved Bookmarks';
+    if(newsContainer) newsContainer.style.display = 'grid';
+    resetNews();
+    loadNews();
+
+  } else if (tab === 'nla') {
+    if(tabTitle) tabTitle.innerText = 'Normative Legal Acts';
+    if(nlaContainer) nlaContainer.style.display = 'block';
+    
+    // Always start at step 0 if switching tabs
+    if(nlaState.step === 0) renderNLA(); 
+    else renderNLA(); 
+
+  } else if (tab === 'stats') {
+    if(tabTitle) tabTitle.innerText = 'IT Ecosystem Statistics';
+    if(statsContainer) statsContainer.style.display = 'block';
+    loadStats();
+
+  } else {
+    // 'all'
+    if(tabTitle) tabTitle.innerText = 'News Feed';
+    if(newsContainer) newsContainer.style.display = 'grid';
+    if(loadMore) loadMore.style.display = 'block';
+    
+    if(newsContainer && newsContainer.children.length === 0) {
+        resetNews();
+        loadNews();
+    }
+  }
 }
 
-/* =========================
-   🔄 RESET
-========================= */
 function resetNews() {
   offset = 0;
   selectedNews = [];
@@ -89,205 +250,203 @@ function resetNews() {
 }
 
 /* =========================
-   🧱 CREATE CARD
-========================= */
-function createCard(container, item) {
-  const card = document.createElement('div');
-  card.className = 'news-card';
-  card.style.border = '1px solid #ddd';
-  card.style.borderRadius = '8px';
-  card.style.padding = '15px';
-  card.style.margin = '10px 0';
-  card.style.boxShadow = '0 2px 5px rgba(0,0,0,0.1)';
-  card.style.backgroundColor = '#fff';
-
-  /* ===== CHECKBOX ===== */
-  const checkbox = document.createElement('input');
-  checkbox.type = 'checkbox';
-  checkbox.style.marginRight = '10px';
-
-  checkbox.addEventListener('change', () => {
-    if (checkbox.checked) {
-      selectedNews.push(item);
-    } else {
-      selectedNews = selectedNews.filter(n => n.id !== item.id);
-    }
-    toggleGenerateButton();
-  });
-
-  /* ===== IMAGE ===== */
-  let contentHTML = '';
-  if (item.image) {
-    contentHTML += `
-      <img src="${item.image}" alt="${item.title}"
-        style="width:100%; max-height:200px; object-fit:cover;
-        border-radius:5px; margin-bottom:10px;">
-    `;
-  }
-
-  /* ===== DESCRIPTION ===== */
-  contentHTML += `<p>${item.description || ''}</p>`;
-
-  /* ===== LINK / VIDEO ===== */
-  if (item.content_type === 'video') {
-    contentHTML += `
-      <video width="100%" controls style="margin-top:10px;">
-        <source src="${item.url}" type="video/mp4">
-      </video>
-    `;
-  } else {
-    contentHTML += `<a href="${item.url}" target="_blank" style="color:#007bff;">Read more</a>`;
-  }
-
-  const isSaved = item.saved === true;
-
-  /* ===== SAVE BUTTON ===== */
-  const saveButton = currentUser
-    ? `<button onclick="${isSaved ? 'unsaveNews' : 'saveNews'}('${item.id}', this)"
-         style="margin-top:10px; padding:5px 10px; cursor:pointer;">
-         ${isSaved ? 'Unsave' : 'Save'}
-       </button>`
-    : `<p style="opacity:0.6; margin-top:10px;">Login to save news</p>`;
-
-  card.innerHTML = `
-    <div style="display:flex; align-items:center; margin-bottom:5px;">
-      <span></span>
-      <h3 style="margin:0;">${item.title}</h3>
-    </div>
-
-    <p style="font-size:12px; color:#555;">
-      <strong>Topic:</strong> ${item.topic || 'General'} |
-      <strong>Department:</strong> ${item.department || 'General'} |
-      <strong>Source:</strong> ${item.source || 'Unknown'}
-    </p>
-
-    ${contentHTML}
-
-    <p style="font-size:12px; color:#888;">Relevance: ${item.relevance}</p>
-
-    ${saveButton}
-  `;
-
-  // Insert checkbox at the very start of card
-  card.prepend(checkbox);
-
-  container.appendChild(card);
-}
-
-/* =========================
-   ➕ LOAD MORE BUTTON
-========================= */
-function toggleLoadMore(show) {
-  let btn = document.getElementById('load-more-btn');
-
-  if (!btn) {
-    btn = document.createElement('button');
-    btn.id = 'load-more-btn';
-    btn.innerText = 'Load more';
-    btn.onclick = loadNews;
-    btn.style.margin = '20px auto';
-    btn.style.display = 'block';
-    document.getElementById('load-more-container').appendChild(btn);
-  }
-
-  btn.style.display = show ? 'block' : 'none';
-}
-
-/* =========================
    📰 LOAD NEWS
 ========================= */
 async function loadNews() {
+  if (currentTab === 'dashboard') return;
   if (isLoading) return;
   isLoading = true;
 
+  const loader = document.getElementById('loader');
+  if(loader) loader.style.display = 'block';
+
   const container = document.getElementById('news-container');
-  if (!container) return;
+  if(offset === 0 && container) container.innerHTML = '';
 
   try {
-    const topic = document.getElementById('topic-filter')?.value || '';
-    const department = document.getElementById('department-filter')?.value || '';
-    const keyword = document.getElementById('keyword')?.value || '';
+    let url = '';
+    
+    if (currentTab === 'saved') {
+        url = '/news/saved';
+    } else {
+        const topic = document.getElementById('topic-filter')?.value || '';
+        const department = document.getElementById('department-filter')?.value || '';
+        const keyword = document.getElementById('keyword')?.value || '';
+        const country = document.getElementById('country-filter')?.value || '';
 
-    const query = new URLSearchParams();
-    if (topic) query.append('topic', topic);
-    if (department) query.append('department', department);
-    if (keyword) query.append('keyword', keyword);
-
-    query.append('limit', limit);
-    query.append('offset', offset);
-
-    if (currentTab === 'saved' && currentUser) {
-      query.append('userId', currentUser.id);
+        const query = new URLSearchParams({ topic, department, keyword, country, limit, offset });
+        if(currentUser) query.append('userId', currentUser.id);
+        
+        url = `/news?${query.toString()}`;
     }
 
-    const res = await fetch(`/news?${query.toString()}`, { credentials: 'include' });
-
-    if (!res.ok) {
-      const text = await res.text();
-      console.error('News fetch failed:', text);
-      throw new Error('Failed to fetch news');
-    }
-
+    const res = await fetch(url, { credentials: 'include' });
     const news = await res.json();
-    console.log('News fetched:', news);
 
     if (!news.length && offset === 0) {
-      container.innerHTML = '<p>No news available</p>';
+      container.innerHTML = `<div style="grid-column:1/-1;text-align:center;padding:40px;color:#64748b;">No items found.</div>`;
       toggleLoadMore(false);
       return;
     }
 
     news.forEach(item => createCard(container, item));
-
-    offset += limit;
-
-    toggleLoadMore(news.length === limit);
+    
+    if(currentTab !== 'saved') {
+        offset += limit;
+        toggleLoadMore(news.length === limit);
+    } else {
+        toggleLoadMore(false);
+    }
 
   } catch (err) {
-    console.error('Error loading news:', err);
-    container.innerHTML = '<p>Error loading news.</p>';
+    console.error(err);
   } finally {
     isLoading = false;
+    if(loader) loader.style.display = 'none';
   }
 }
 
 /* =========================
-   ⭐ SAVE / UNSAVE
+   ⚖️ LOAD NLA
 ========================= */
-async function saveNews(id, btn) {
-  if (!currentUser) return alert('Login first!');
-  await fetch('/news/save', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ newsId: id }),
-    credentials: 'include'
-  });
-  btn.innerText = 'Unsave';
-  btn.setAttribute('onclick', `unsaveNews('${id}', this)`);
-}
-
-async function unsaveNews(id, btn) {
-  if (!currentUser) return alert('Login first!');
-  await fetch('/news/unsave', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ newsId: id }),
-    credentials: 'include'
-  });
-  btn.innerText = 'Save';
-  btn.setAttribute('onclick', `saveNews('${id}', this)`);
+async function loadNLA() {
+    renderNLA();
 }
 
 /* =========================
-   🔁 AUTO REFRESH (10 MIN)
+   📈 LOAD STATS
 ========================= */
-setInterval(() => {
-  if (currentTab === 'all') {
-    resetNews();
-    loadNews();
-    console.log('🔄 News auto-refreshed');
+async function loadStats() {
+    const container = document.getElementById('stats-grid');
+    const country = document.getElementById('country-filter')?.value || '';
+    container.innerHTML = '<div style="text-align:center; padding:20px;"><i class="fa-solid fa-spinner fa-spin"></i> Loading...</div>';
+
+    const res = await fetch(`/stats?country=${country}`);
+    const data = await res.json();
+
+    container.innerHTML = '';
+    if(data.length === 0) {
+        container.innerHTML = '<div style="padding:20px; color:#64748b;">No ecosystem stats found for this country.</div>';
+        return;
+    }
+
+    data.forEach(item => {
+        const div = document.createElement('div');
+        div.className = 'stat-card-display';
+        div.innerHTML = `
+            <div class="stat-main">
+                <div style="display:flex; justify-content:space-between; margin-bottom:5px;">
+                     <div class="stat-entity">${item.entity_name}</div>
+                     <span style="font-size:0.8rem; color:#94a3b8;">${item.country_name}</span>
+                </div>
+                <div class="stat-value">${item.metric_value}</div>
+                <div class="stat-metric">${item.metric_name}</div>
+                <div style="margin-top:5px; font-size:0.8rem; color:#cbd5e1;">Source: ${item.source}</div>
+            </div>
+        `;
+        container.appendChild(div);
+    });
+}
+
+/* =========================
+   🧱 CREATE CARD
+========================= */
+function createCard(container, item) {
+  const card = document.createElement('div');
+  card.className = 'news-card';
+
+  let imageHTML = `<div class="card-image-wrapper">`;
+  if (item.image) {
+    imageHTML += `<img src="${item.image}" onerror="this.style.display='none'">`;
+  } else {
+    imageHTML += `<div style="width:100%;height:100%;background:#e2e8f0;display:flex;align-items:center;justify-content:center;color:#94a3b8;"><i class="fa-solid fa-image fa-2x"></i></div>`;
   }
-}, AUTO_REFRESH_MS);
+  imageHTML += `</div>`;
+
+  const isSaved = item.saved === true;
+  const saveBtnClass = isSaved ? 'save-btn active' : 'save-btn';
+  const saveBtnText = isSaved ? '<i class="fa-solid fa-bookmark"></i> Saved' : '<i class="fa-regular fa-bookmark"></i> Save';
+  
+  const linkText = item.type === 'rss' ? 'Read (RSS)' : 'Read Full Story';
+  const mediaLink = `<a href="${item.url}" target="_blank" style="color:var(--primary);font-size:0.9rem;text-decoration:none;">${linkText} &rarr;</a>`;
+
+  const telegramBtn = currentUser 
+    ? `<button class="share-btn" title="Send to Telegram Group"><i class="fa-brands fa-telegram"></i></button>` 
+    : '';
+
+  card.innerHTML = `
+    ${imageHTML}
+    <div class="card-body">
+      <div class="card-meta">
+        <span class="badge">${item.topic || 'General'}</span>
+        <span>• ${item.source || 'Unknown'}</span>
+      </div>
+      <h3 class="card-title">${item.title}</h3>
+      <p class="card-desc">${item.description || 'No description available.'}</p>
+      <div style="margin-bottom:10px;">${mediaLink}</div>
+      <div class="card-footer">
+        <div style="display:flex; gap:10px; align-items:center;">
+             ${currentUser ? `<button class="${saveBtnClass}">${saveBtnText}</button>` : ''}
+             ${telegramBtn} 
+        </div>
+        <span class="relevance-score">Match: ${item.relevance || 'N/A'}</span>
+      </div>
+    </div>
+  `;
+
+  const checkbox = document.createElement('input');
+  checkbox.type = 'checkbox';
+  checkbox.className = 'card-select-check';
+  checkbox.onchange = () => {
+    if(checkbox.checked) selectedNews.push(item);
+    else selectedNews = selectedNews.filter(n => n.id !== item.id);
+    toggleGenerateButton();
+  };
+  card.prepend(checkbox);
+
+  const saveBtn = card.querySelector('.save-btn');
+  if(saveBtn) {
+      saveBtn.onclick = async () => {
+        if(saveBtn.classList.contains('active')) {
+            await fetch('/news/unsave', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ newsId: item.id })
+            });
+            saveBtn.classList.remove('active');
+            saveBtn.innerHTML = '<i class="fa-regular fa-bookmark"></i> Save';
+            item.saved = false;
+            if(currentTab === 'saved') card.remove();
+        } else {
+            await fetch('/news/save', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(item)
+            });
+            saveBtn.classList.add('active');
+            saveBtn.innerHTML = '<i class="fa-solid fa-bookmark"></i> Saved';
+            item.saved = true;
+        }
+      };
+  }
+
+  const shareBtn = card.querySelector('.share-btn');
+  if(shareBtn) {
+      shareBtn.onclick = () => shareToTelegram(item, shareBtn);
+  }
+
+  container.appendChild(card);
+}
+
+function toggleLoadMore(show) {
+  const btn = document.getElementById('load-more-btn');
+  if (btn) btn.style.display = show ? 'block' : 'none';
+}
+
+function toggleGenerateButton() {
+  const box = document.getElementById('report-actions');
+  if (box) box.style.display = selectedNews.length > 0 ? 'block' : 'none';
+}
 
 /* =========================
    🚀 INIT
@@ -295,28 +454,371 @@ setInterval(() => {
 window.onload = async () => {
   await fetchCurrentUser();
   showTab('all');
+
+  const genBtn = document.getElementById('generate-report-btn');
+  if(genBtn) {
+      genBtn.onclick = async () => {
+          if(!selectedNews.length) return alert("Select news first");
+          genBtn.innerText = "Generating...";
+          try {
+              const res = await fetch('/news/report', {
+                  method: 'POST',
+                  headers: {'Content-Type': 'application/json'},
+                  body: JSON.stringify({ news: selectedNews, period: { from: '2026', to: '2026'} })
+              });
+              
+              if(!res.ok) throw new Error("Failed to generate PDF");
+              
+              const blob = await res.blob();
+              const url = window.URL.createObjectURL(blob);
+              const a = document.createElement('a');
+              a.href = url;
+              a.download = 'IT-Park-Bulletin.pdf';
+              document.body.appendChild(a);
+              a.click();
+              window.URL.revokeObjectURL(url);
+              a.remove();
+          } catch(e) { 
+              alert("Error generating PDF. Please try selecting fewer items or items without large images."); 
+              console.error(e);
+          } finally { 
+              genBtn.innerText = "Generate PDF"; 
+          }
+      };
+  }
 };
 
-const generateBtn = document.getElementById('generate-report-btn');
-generateBtn.addEventListener('click', async () => {
-  if (!selectedNews.length) return alert('Select at least one news item!');
+/* =========================
+   ✈️ TELEGRAM SHARE
+========================= */
+async function shareToTelegram(item, btn) {
+    const originalIcon = btn.innerHTML;
+    btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i>'; 
+    btn.disabled = true;
 
-  const period = { from: '2026-01-01', to: '2026-01-20' }; // optional
-  const response = await fetch('/news/report', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ news: selectedNews, period })
-  });
+    try {
+        const res = await fetch('/news/share', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(item)
+        });
 
-  if (!response.ok) return alert('Failed to generate PDF');
+        if (res.ok) {
+            btn.innerHTML = '<i class="fa-solid fa-check"></i>'; 
+            setTimeout(() => {
+                btn.innerHTML = originalIcon;
+                btn.disabled = false;
+            }, 2000);
+        } else {
+            throw new Error('Failed');
+        }
+    } catch (e) {
+        alert('Failed to send notification. Check server logs.');
+        btn.innerHTML = originalIcon;
+        btn.disabled = false;
+    }
+}
 
-  const blob = await response.blob();
-  const url = window.URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = 'IT-Park-News-Report.pdf';
-  document.body.appendChild(a);
-  a.click();
-  a.remove();
-});
+/* =========================
+   ⚖️ NLA LOGIC (MULTI-COUNTRY LIVE & DOWNLOADS)
+========================= */
 
+let nlaState = {
+    step: 0, 
+    selectedCountry: null,
+    selectedCategory: null,
+    selectedIssuer: null,
+    selectedTopic: null
+};
+
+// 🇺🇿 UZBEKISTAN SECTORS (Lex.uz)
+const UZ_SECTORS = [
+    { name: "Digital Economy", query: "raqamli iqtisodiyot", icon: "fa-chart-line" },
+    { name: "IT & Startups", query: "startap", icon: "fa-rocket" },
+    { name: "Crypto Assets", query: "kripto-aktiv", icon: "fa-bitcoin-sign" },
+    { name: "Artificial Intelligence", query: "sun'iy intellekt", icon: "fa-brain" },
+    { name: "E-Government", query: "elektron hukumat", icon: "fa-building-columns" },
+    { name: "Cybersecurity", query: "kiberxavfsizlik", icon: "fa-shield-halved" },
+    { name: "IT Education", query: "axborot texnologiyalari ta'lim", icon: "fa-graduation-cap" }
+];
+
+// 🇰🇿 KAZAKHSTAN SECTORS (Adilet)
+const KZ_SECTORS = [
+    { name: "Astana Hub", query: "Astana Hub", icon: "fa-hubspot" },
+    { name: "Digital Assets", query: "цифровые активы", icon: "fa-coins" },
+    { name: "Informatization", query: "информатизация", icon: "fa-network-wired" },
+    { name: "Venture Capital", query: "венчурное финансирование", icon: "fa-hand-holding-dollar" },
+    { name: "Cybersecurity", query: "кибербезопасность", icon: "fa-user-shield" }
+];
+
+// 🇸🇬 SINGAPORE SECTORS (SSO)
+const SG_SECTORS = [
+    { name: "Smart Nation", query: "Smart Nation", icon: "fa-city" },
+    { name: "Fintech & Payments", query: "Payment Services", icon: "fa-wallet" },
+    { name: "Artificial Intelligence", query: "Computer Misuse", icon: "fa-brain" },
+    { name: "Cybersecurity", query: "Cybersecurity", icon: "fa-user-shield" },
+    { name: "Personal Data (PDPA)", query: "Personal Data Protection", icon: "fa-id-card" }
+];
+
+// 🇬🇧 UNITED KINGDOM SECTORS (Legislation.gov.uk)
+const UK_SECTORS = [
+    { name: "Online Safety", query: "Online Safety", icon: "fa-child-reaching" },
+    { name: "Data Protection", query: "Data Protection", icon: "fa-database" },
+    { name: "Digital Markets", query: "Digital Markets", icon: "fa-shop" },
+    { name: "Artificial Intelligence", query: "Artificial Intelligence", icon: "fa-robot" }
+];
+
+// 🇺🇸 USA SECTORS
+const US_SECTORS = [
+    { name: "Artificial Intelligence", query: "Artificial Intelligence", icon: "fa-brain" },
+    { name: "Cybersecurity", query: "Cybersecurity", icon: "fa-user-shield" },
+    { name: "CHIPS Act", query: "CHIPS Act", icon: "fa-microchip" },
+    { name: "Data Privacy", query: "Data Privacy", icon: "fa-user-lock" }
+];
+
+// 🇪🇪 ESTONIA SECTORS
+const EE_SECTORS = [
+    { name: "Electronic ID", query: "Electronic Identification", icon: "fa-id-card-clip" },
+    { name: "Cybersecurity", query: "Cybersecurity Act", icon: "fa-shield-virus" },
+    { name: "Digital Signature", query: "Digital Signature", icon: "fa-file-signature" },
+    { name: "Public Information", query: "Public Information Act", icon: "fa-users-viewfinder" }
+];
+
+// 🇨🇳 CHINA SECTORS (Queries in English -> Found via Bing)
+const CN_SECTORS = [
+    { name: "Personal Information", query: "Personal Information Protection", icon: "fa-id-badge" },
+    { name: "Data Security", query: "Data Security Law", icon: "fa-database" },
+    { name: "Cybersecurity", query: "Cybersecurity Law", icon: "fa-shield-halved" },
+    { name: "E-Commerce", query: "E-Commerce Law", icon: "fa-cart-shopping" }
+];
+
+// 🇵🇱 POLAND SECTORS (Queries in Polish)
+const PL_SECTORS = [
+    { name: "Cybersecurity (KSC)", query: "krajowym systemie cyberbezpieczeństwa", icon: "fa-shield" },
+    { name: "Informatization", query: "informatyzacji działalności", icon: "fa-computer" },
+    { name: "Data Protection", query: "ochronie danych osobowych", icon: "fa-user-shield" }
+];
+
+// 🇻🇳 VIETNAM SECTORS (Queries in Vietnamese)
+const VN_SECTORS = [
+    { name: "E-Transactions", query: "giao dịch điện tử", icon: "fa-comments-dollar" },
+    { name: "Cybersecurity", query: "an ninh mạng", icon: "fa-user-secret" },
+    { name: "Information Tech", query: "công nghệ thông tin", icon: "fa-laptop" }
+];
+
+/* =========================
+   ⚖️ MAIN RENDER FUNCTION (UPDATED)
+========================= */
+async function renderNLA() {
+    const container = document.getElementById('nla-grid');
+    const breadcrumbs = document.getElementById('nla-breadcrumbs');
+    container.innerHTML = '<div class="spinner"></div>';
+
+    // ------------------------------------------
+    // STEP 0: SELECT COUNTRY
+    // ------------------------------------------
+    if (nlaState.step === 0) {
+        if(breadcrumbs) breadcrumbs.innerHTML = 'Select Jurisdiction';
+        
+        // Fetch the list from backend (now includes US, CN, EE, etc.)
+        const res = await fetch('/nla/countries');
+        const countries = await res.json();
+        
+        container.className = 'nla-grid-countries';
+        container.innerHTML = '';
+
+        countries.forEach(c => {
+            const div = document.createElement('div');
+            div.className = 'nla-country-card';
+            div.innerHTML = `
+                <img src="https://flagcdn.com/${c.country_code}.svg" width="60">
+                <h3>${c.country_name}</h3>
+                <small style="color:#64748b;">${c.type}</small>
+            `;
+            div.onclick = () => {
+                nlaState.selectedCountry = c.country_code;
+                nlaState.step = 1;
+                renderNLA();
+            };
+            container.appendChild(div);
+        });
+    }
+
+    // ------------------------------------------
+    // STEP 1: SELECT CATEGORY
+    // ------------------------------------------
+    else if (nlaState.step === 1) {
+        if(breadcrumbs) breadcrumbs.innerHTML = `<span onclick="resetNLA()" style="cursor:pointer; color:#2563eb;">Countries</span> > Select Topic`;
+        
+        let sectors = [];
+        const c = nlaState.selectedCountry;
+
+        // Map country code to sector array
+        if (c === 'uz') sectors = UZ_SECTORS;
+        else if (c === 'kz') sectors = KZ_SECTORS;
+        else if (c === 'sg') sectors = SG_SECTORS;
+        else if (c === 'gb') sectors = UK_SECTORS;
+        else if (c === 'us') sectors = US_SECTORS; // New
+        else if (c === 'ee') sectors = EE_SECTORS; // New
+        else if (c === 'cn') sectors = CN_SECTORS; // New
+        else if (c === 'pl') sectors = PL_SECTORS; // New
+        else if (c === 'vn') sectors = VN_SECTORS; // New
+
+        container.className = 'nla-grid-countries';
+        container.innerHTML = '';
+
+        sectors.forEach(sector => {
+            const div = document.createElement('div');
+            div.className = 'nla-country-card';
+            div.innerHTML = `
+                <div style="font-size:2rem; color:var(--primary); margin-bottom:10px;">
+                    <i class="fa-solid ${sector.icon} fa-fw"></i>
+                </div>
+                <h3>${sector.name}</h3>
+                <small style="color:#64748b;">Search Official DB</small>
+            `;
+            div.onclick = () => {
+                nlaState.selectedCategory = sector.query;
+                nlaState.step = 2;
+                renderNLA();
+            };
+            container.appendChild(div);
+        });
+    }
+
+    // ------------------------------------------
+    // STEP 2: SHOW RESULTS
+    // ------------------------------------------
+    else if (nlaState.step === 2) {
+        if(breadcrumbs) breadcrumbs.innerHTML = `<span onclick="backToStep(1)" style="cursor:pointer; color:#2563eb;">Topics</span> > Results`;
+        
+        // Determine API Endpoint
+        const c = nlaState.selectedCountry;
+        let apiEndpoint = `/nla/live/search?query=${nlaState.selectedCategory}`; // Default UZ
+        
+        if (c === 'kz') apiEndpoint = `/nla/live/kz/search?query=${nlaState.selectedCategory}`;
+        else if (c === 'sg') apiEndpoint = `/nla/live/sg/search?query=${nlaState.selectedCategory}`;
+        else if (c === 'gb') apiEndpoint = `/nla/live/uk/search?query=${nlaState.selectedCategory}`;
+        else if (c === 'us') apiEndpoint = `/nla/live/us/search?query=${nlaState.selectedCategory}`;
+        else if (c === 'ee') apiEndpoint = `/nla/live/ee/search?query=${nlaState.selectedCategory}`;
+        else if (c === 'cn') apiEndpoint = `/nla/live/cn/search?query=${nlaState.selectedCategory}`;
+        else if (c === 'pl') apiEndpoint = `/nla/live/pl/search?query=${nlaState.selectedCategory}`;
+        else if (c === 'vn') apiEndpoint = `/nla/live/vn/search?query=${nlaState.selectedCategory}`;
+
+        container.innerHTML = `<div class="spinner"></div><p style="text-align:center">Connecting to official database...</p>`;
+        container.className = 'nla-list-view';
+
+        try {
+            const res = await fetch(apiEndpoint);
+            const results = await res.json();
+
+            container.innerHTML = '';
+            if (!results || results.length === 0) {
+                container.innerHTML = '<div style="text-align:center; padding:20px;">No direct matches found.</div>';
+                return;
+            }
+
+            results.forEach(doc => {
+                const div = document.createElement('div');
+                div.className = 'nla-law-card'; 
+                
+                let btns = '';
+                
+                // 1. UZBEKISTAN
+                if (c === 'uz') {
+                    btns = `<a href="/nla/download/${doc.id}" target="_blank" class="btn-lang btn-uz"><b>Download (UZ)</b></a>
+                            <a href="https://lex.uz/ru/docs/${doc.id}" target="_blank" class="btn-lang btn-ru"><b>View RU</b></a>`;
+                }
+                // 2. KAZAKHSTAN
+                else if (c === 'kz') {
+                    btns = `<a href="/nla/live/kz/download/${doc.id}" target="_blank" class="btn-lang btn-ru"><i class="fa-solid fa-file-word"></i> <b>Download</b></a>
+                            <a href="${doc.url}" target="_blank" class="btn-lang btn-en"><b>Adilet</b></a>`;
+                }
+                // 3. SINGAPORE
+                else if (c === 'sg') {
+                    btns = `<a href="${doc.pdf}" target="_blank" class="btn-lang btn-en" style="background:#e0f2fe; color:#0284c7;"><i class="fa-solid fa-file-pdf"></i> <b>PDF</b></a>
+                            <a href="${doc.url}" target="_blank" class="btn-lang btn-en"><b>View SSO</b></a>`;
+                }
+                // 4. UK
+                else if (c === 'gb') {
+                    btns = `<a href="${doc.pdf}" target="_blank" class="btn-lang btn-en" style="background:#fce7f3; color:#831843;"><i class="fa-solid fa-file-pdf"></i> <b>PDF</b></a>
+                            <a href="${doc.url}" target="_blank" class="btn-lang btn-en"><b>Legislation.gov.uk</b></a>`;
+                }
+                // 5. USA
+                else if (c === 'us') {
+                    btns = `<a href="${doc.url}" target="_blank" class="btn-lang btn-en" style="background:#1e3a8a; color:white;"><i class="fa-solid fa-landmark"></i> <b>Congress.gov</b></a>`;
+                }
+                // 6. ESTONIA
+                else if (c === 'ee') {
+                    btns = `<a href="${doc.url}" target="_blank" class="btn-lang btn-en" style="background:#0072CE; color:white;"><i class="fa-solid fa-scale-balanced"></i> <b>Riigi Teataja</b></a>`;
+                }
+                // 7. CHINA
+                else if (c === 'cn') {
+                    btns = `<a href="${doc.url}" target="_blank" class="btn-lang btn-en" style="background:#de2910; color:#ffde00;"><i class="fa-solid fa-gavel"></i> <b>Official DB</b></a>`;
+                }
+                // 8. POLAND
+                else if (c === 'pl') {
+                    btns = `<a href="${doc.url}" target="_blank" class="btn-lang btn-en" style="background:#dc143c; color:white;"><b>ISAP Sejm</b></a>`;
+                }
+                // 9. VIETNAM
+                else if (c === 'vn') {
+                    btns = `<a href="${doc.url}" target="_blank" class="btn-lang btn-en" style="background:#da251d; color:#ffcd00;"><b>VBPL</b></a>`;
+                }
+
+                div.innerHTML = `
+                    <div class="nla-card-header">
+                        <div class="nla-icon-box"><i class="fa-solid fa-scale-balanced"></i></div>
+                        <div>
+                            <h4 class="nla-card-title">${doc.title}</h4>
+                            <div class="nla-card-meta"><span>${doc.date}</span> • <span>${doc.issuer}</span></div>
+                        </div>
+                    </div>
+                    <div class="nla-download-group">${btns}</div>
+                `;
+                container.appendChild(div);
+            });
+        } catch (e) {
+            container.innerHTML = '<div style="color:red; text-align:center;">Connection Error.</div>';
+        }
+    }
+}
+
+// --- HELPER FUNCTIONS ---
+
+function resetNLA() {
+    nlaState.step = 0;
+    renderNLA();
+}
+
+function backToStep(s) {
+    nlaState.step = s;
+    renderNLA();
+}
+
+// --- DATABASE READER (FOR OTHER COUNTRIES) ---
+async function loadLawContent(id) {
+    const reader = document.getElementById('nla-reader-modal');
+    const contentBox = document.getElementById('nla-reader-content');
+    reader.style.display = 'flex';
+    contentBox.innerHTML = '<div class="spinner"></div>';
+    
+    const res = await fetch(`/nla/content/${id}`);
+    const doc = await res.json();
+    
+    const domain = new URL(doc.source_url).hostname;
+    
+    contentBox.innerHTML = `
+        <h1 style="font-size:1.8rem; margin:5px 0 15px 0; line-height:1.3;">${doc.title}</h1>
+        <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap:10px; margin-bottom:25px;">
+            <div class="meta-box"><span class="label">Issuer</span><span class="val">${doc.legal_issuer}</span></div>
+            <div class="meta-box"><span class="label">Topic</span><span class="val">${doc.legal_topic}</span></div>
+            <div class="meta-box"><span class="label">Date</span><span class="val">${doc.enactment_date}</span></div>
+        </div>
+        <div style="font-family: 'Georgia', serif; font-size: 1.15rem; line-height: 1.8; color:#334155; white-space: pre-wrap; border-top:1px solid #e2e8f0; padding-top:20px;">
+            ${doc.full_text}
+        </div>
+        <div style="margin-top:40px; text-align:center;">
+            <a href="${doc.source_url}" target="_blank" class="primary-btn">View Original on ${domain}</a>
+        </div>
+    `;
+}

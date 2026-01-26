@@ -1,65 +1,244 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>IT Park Bulletin</title>
-<link rel="stylesheet" href="style.css">
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>IT Park Bulletin | Strategic Analysis</title>
+    
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    
+    <link rel="stylesheet" href="style.css">
+    <link href="https://fonts.googleapis.com/css2?family=Merriweather:wght@300;400;700&display=swap" rel="stylesheet">
 </head>
 <body>
 
-<header>
-  <h1>IT Park Bulletin</h1>
-  <div id="user-info">
-    <button id="auth-btn" onclick="handleAuthClick()">Sign in with Google</button>
-    <span id="user-name"></span>
-  </div>
-</header>
+    <div id="login-overlay">
+        <div class="glass-container">
+            <div class="blob blob-1"></div>
+            <div class="blob blob-2"></div>
 
-<nav>
-  <button onclick="showTab('all')" id="tab-all">All News</button>
-  <button onclick="showTab('saved')" id="tab-saved">Saved News</button>
-</nav>
+            <div class="login-card">
+            <div class="logo-section">
+                <img src="img/LOGO_ITParkll.png" alt="IT Park Logo" class="login-logo">
+                <span class="badge-beta">Internal Portal</span>
+            </div>
+            
+            <div class="auth-toggle">
+                <button id="btn-show-login" class="active" onclick="toggleAuthMode('login')">Sign In</button>
+                <button id="btn-show-register" onclick="toggleAuthMode('register')">Register</button>
+            </div>
 
-<!-- MISSING: tab-title -->
-<h2 id="tab-title">News</h2>
+            <div id="form-login">
+                <h1 style="font-size:1.5rem; margin-bottom:5px;">Welcome Back</h1>
+                <p class="subtitle" style="margin-bottom:20px;">Enter your credentials to access</p>
 
-<section id="filters">
-  <select id="topic-filter">
-    <option value="">All Topics</option>
-    <option value="AI">AI</option>
-    <option value="Startup">Startup</option>
-    <option value="Tech">Tech</option>
-    <option value="General">General</option>
-  </select>
+                <div class="input-group">
+                    <input type="email" id="login-email" placeholder="Email Address">
+                </div>
+                <div class="input-group">
+                    <input type="password" id="login-password" placeholder="Password">
+                </div>
+                
+                <button class="primary-btn" onclick="handleManualLogin()">Sign In</button>
 
-  <select id="department-filter">
-    <option value="">All Departments</option>
-    <option value="Data">Data</option>
-    <option value="Strategy">Strategy</option>
-    <option value="Development">Development</option>
-  </select>
+                <div class="divider"><span>OR</span></div>
 
-  <input id="keyword" placeholder="Search keyword..." />
-  <button onclick="loadNews()">Search</button>
-</section>
+                <button class="google-btn-large" onclick="loginWithGoogle()">
+                    <div class="icon-wrapper"><img src="img/google.webp" width="20"></div>
+                    <span class="btn-title">Continue with Google</span>
+                </button>
+            </div>
 
-<div id="report-actions" style="display:none; text-align:center; margin:20px;">
-  <button id="generate-report-btn">Generate Report (PDF)</button>
+            <div id="form-register" style="display:none;">
+                <h1 style="font-size:1.5rem; margin-bottom:5px;">New Account</h1>
+                <p class="subtitle" style="margin-bottom:20px;">Join the Strategy Department</p>
+
+                <div class="input-group">
+                    <input type="text" id="reg-name" placeholder="Full Name">
+                </div>
+                <div class="input-group">
+                    <input type="email" id="reg-email" placeholder="Email Address">
+                </div>
+                <div class="input-group">
+                    <select id="reg-dept">
+                        <option value="General">Select Department...</option>
+                        <option value="Strategy">Strategy</option>
+                        <option value="Data">Data Analysis</option>
+                        <option value="Investment">Investment</option>
+                    </select>
+                </div>
+                <div class="input-group">
+                    <input type="password" id="reg-password" placeholder="Create Password">
+                </div>
+
+                <button class="primary-btn" onclick="handleRegister()">Create Account</button>
+            </div>
+
+        </div>
+        </div>
+    </div>
+
+    <div id="app-wrapper">
+        
+        <header>
+            <div class="header-container">
+                <div class="logo-area">
+                    <i class="fa-solid fa-newspaper logo-icon"></i>
+                    <h1>IT Park Bulletin</h1>
+                </div>
+                
+
+                <div id="user-info" class="user-profile-pill" style="display:none;">
+                    <div class="user-text">
+                        <span id="user-name" class="name">Loading...</span>
+                        <span id="user-dept" class="dept">General Dept</span>
+                    </div>
+                    <img id="user-avatar" src="" alt="Profile" class="avatar-img">
+                    <button onclick="logout()" class="logout-mini-btn" title="Sign Out">
+                        <i class="fa-solid fa-right-from-bracket"></i>
+                    </button>
+                </div>
+            </div>
+        </header>
+
+        <div class="main-wrapper">
+            
+            <aside class="sidebar">
+                <nav class="sidebar-nav">
+                    <button onclick="showTab('all')" id="tab-all" class="active">
+                        <i class="fa-solid fa-globe"></i> News Feed
+                    </button>
+                    <button onclick="showTab('saved')" id="tab-saved">
+                        <i class="fa-solid fa-bookmark"></i> Saved Items
+                    </button>
+                    <button onclick="showTab('dashboard')" id="tab-dashboard">
+                        <i class="fa-solid fa-chart-pie"></i> Analytics
+                    </button>
+                    <button onclick="showTab('nla')" id="tab-nla">
+                        <i class="fa-solid fa-gavel"></i> Legislation (NLA)
+                    </button>
+                    <button onclick="showTab('stats')" id="tab-stats">
+                        <i class="fa-solid fa-building"></i> Statistics & Hubs
+                    </button>
+                </nav>
+
+                <div class="report-box" id="report-actions">
+                    <div class="report-info">
+                        <i class="fa-solid fa-file-pdf"></i>
+                        <span>Selected for Report</span>
+                    </div>
+                    <button id="generate-report-btn">Generate PDF</button>
+                </div>
+            </aside>
+
+            <section class="content-area">
+                
+                <div class="content-header">
+                    <h2 id="tab-title">News Feed</h2>
+                </div>
+
+                <section id="filters">
+                    <div class="filter-group">
+                        <div class="select-wrapper">
+                            <select id="topic-filter">
+                                <option value="">All Topics</option>
+                                <option value="AI">Artificial Intelligence</option>
+                                <option value="Startup">Startups</option>
+                                <option value="Tech">Technology</option>
+                                <option value="Investment">Investment</option>
+                                <option value="General">General</option>
+                            </select>
+                            <i class="fa-solid fa-chevron-down"></i>
+                        </div>
+
+                        <div class="select-wrapper">
+                            <select id="department-filter">
+                                <option value="">All Departments</option>
+                                <option value="Data">Data Analysis</option>
+                                <option value="Strategy">Strategy</option>
+                                <option value="Development">Development</option>
+                            </select>
+                            <i class="fa-solid fa-chevron-down"></i>
+                        </div>
+
+                        <div class="select-wrapper">
+                            <select id="country-filter" onchange="if(currentTab === 'all') { resetNews(); loadNews(); } else if(currentTab === 'nla') { loadNLA(); } else if(currentTab === 'stats') { loadStats(); }">
+                                <option value="">Global (All Countries)</option>
+                                <option value="us">🇺🇸 USA (Silicon Valley)</option>
+                                <option value="gb">🇬🇧 United Kingdom</option>
+                                <option value="in">🇮🇳 India</option>
+                                <option value="de">🇩🇪 Germany</option>
+                                <option value="kr">🇰🇷 South Korea</option>
+                                <option value="jp">🇯🇵 Japan</option>
+                                <option value="ru">🇷🇺 Russia</option>
+                                <option value="kz">🇰🇿 Kazakhstan (Competitor)</option>
+                                <option value="uz">🇺🇿 Uzbekistan (Local)</option>
+                            </select>
+                            <i class="fa-solid fa-globe"></i>
+                        </div>
+                    </div>
+
+                    <div class="search-group">
+                        <i class="fa-solid fa-magnifying-glass search-icon"></i>
+                        <input id="keyword" placeholder="Search keywords..." />
+                        <button onclick="loadNews()" class="search-btn">Search</button>
+                    </div>
+                </section>
+
+                <div id="loader" style="display: none;">
+                    <div class="spinner"></div>
+                </div>
+
+                <main id="news-container"></main>
+
+                <div id="dashboard-container" style="display:none;">
+                    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(350px, 1fr)); gap: 20px;">
+                        <div style="background:white; padding:20px; border-radius:12px; border:1px solid #e2e8f0;">
+                            <h3 style="margin-top:0; color:#1e293b; font-size:1rem;">Topic Distribution</h3>
+                            <div style="height: 300px; position: relative;">
+                                <canvas id="topicChart"></canvas>
+                            </div>
+                        </div>
+                        <div style="background:white; padding:20px; border-radius:12px; border:1px solid #e2e8f0;">
+                            <h3 style="margin-top:0; color:#1e293b; font-size:1rem;">Top Sources</h3>
+                            <div style="height: 300px; position: relative;">
+                                <canvas id="sourceChart"></canvas>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div id="nla-container" style="display:none;">
+    <div style="margin-bottom: 20px; font-weight: 600; font-size: 1.1rem;" id="nla-breadcrumbs">
+        Select Jurisdiction
+    </div>
+    <div id="nla-grid"></div> </div>
+
+<div id="nla-reader-modal" class="reader-modal">
+    <div class="reader-box">
+        <div class="reader-header">
+            <button class="close-reader" onclick="closeReader()">&times;</button>
+        </div>
+        <div class="reader-body" id="nla-reader-content">
+            </div>
+    </div>
 </div>
 
+                <div id="stats-container" style="display:none;">
+                    <div class="stats-grid" id="stats-grid"></div>
+                </div>
 
+                <div id="load-more-container">
+                    <button id="load-more-btn" style="display:none;">Load More News</button>
+                </div>
 
-<main id="news-container">
-  <!-- News cards will appear here -->
-</main>
+            </section>
+        </div>
+    </div>
 
-
-
-<div id="load-more-container">
-  <button id="load-more-btn" style="display:none;">Load more</button>
-</div>
-
-<script src="script.js"></script>
+    <script src="script.js"></script>
 </body>
 </html>

@@ -1,52 +1,157 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Admin Dashboard</title>
-<style>
-  body { font-family: Arial, sans-serif; margin: 20px; }
-  table { width: 100%; border-collapse: collapse; }
-  th, td { padding: 8px; border: 1px solid #ccc; }
-  th { background-color: #f0f0f0; }
-</style>
+    <meta charset="UTF-8">
+    <title>IT Park - Admin Portal</title>
+    <link rel="stylesheet" href="style.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>
+        /* Admin Specific Styles */
+        .admin-container { display: flex; min-height: 100vh; }
+        .admin-sidebar { width: 260px; background: #0f172a; color: white; padding: 20px; flex-shrink: 0; }
+        .admin-content { flex: 1; padding: 30px; background: #f1f5f9; }
+        
+        .admin-brand { display: flex; align-items: center; gap: 10px; margin-bottom: 40px; }
+        .admin-brand img { height: 30px; }
+        .admin-brand span { font-weight: 700; font-size: 1.1rem; color:white;}
+
+        .admin-nav button {
+            width: 100%; text-align: left; padding: 12px; background: transparent;
+            border: none; color: #94a3b8; cursor: pointer; border-radius: 8px;
+            margin-bottom: 5px; font-size: 0.95rem; display: flex; gap: 10px; align-items: center;
+        }
+        .admin-nav button:hover { background: rgba(255,255,255,0.1); color: white; }
+        .admin-nav button.active { background: var(--primary); color: white; }
+
+        /* Stats Cards */
+        .stats-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 20px; margin-bottom: 30px; }
+        .stat-card { background: white; padding: 20px; border-radius: 12px; border: 1px solid #e2e8f0; }
+        .stat-val { font-size: 2rem; font-weight: 700; color: var(--text-main); margin: 5px 0; }
+        .stat-label { color: var(--text-muted); font-size: 0.9rem; }
+
+        /* Data Table */
+        .data-table { width: 100%; border-collapse: collapse; background: white; border-radius: 12px; overflow: hidden; box-shadow: 0 1px 3px rgba(0,0,0,0.05); }
+        .data-table th, .data-table td { padding: 15px; text-align: left; border-bottom: 1px solid #e2e8f0; }
+        .data-table th { background: #f8fafc; font-weight: 600; color: var(--text-muted); font-size: 0.85rem; text-transform: uppercase; }
+        .user-row img { width: 30px; height: 30px; border-radius: 50%; vertical-align: middle; margin-right: 10px; }
+    </style>
 </head>
 <body>
-  <h1>Admin Dashboard</h1>
-  <table id="admin-table">
-    <thead>
-      <tr>
-        <th>User ID</th>
-        <th>Name</th>
-        <th>Email</th>
-        <th>Saved News ID</th>
-        <th>Saved News Title</th>
-      </tr>
-    </thead>
-    <tbody></tbody>
-  </table>
 
-  <script>
-    async function loadAdminData() {
-      const res = await fetch('/admin/data');
-      const data = await res.json();
-      const tbody = document.querySelector('#admin-table tbody');
-      tbody.innerHTML = '';
+<div class="admin-container">
+    <div class="admin-sidebar">
+        <div class="admin-brand">
+            <img src="img/LOGO_ITParkll.png" style="filter: brightness(0) invert(1);" alt="Logo">
+            <span>Admin Panel</span>
+        </div>
+        <nav class="admin-nav">
+            <button class="active" onclick="switchView('dashboard')"><i class="fa-solid fa-chart-line"></i> Dashboard</button>
+            <button onclick="switchView('users')"><i class="fa-solid fa-users"></i> Users & Staff</button>
+            <button onclick="window.location.href='/'"><i class="fa-solid fa-arrow-left"></i> Back to Portal</button>
+        </nav>
+    </div>
 
-      data.forEach(row => {
-        const tr = document.createElement('tr');
-        tr.innerHTML = `
-          <td>${row.user_id}</td>
-          <td>${row.name}</td>
-          <td>${row.email}</td>
-          <td>${row.news_id || '-'}</td>
-          <td>${row.title || '-'}</td>
-        `;
-        tbody.appendChild(tr);
-      });
+    <div class="admin-content">
+        
+        <div id="view-dashboard">
+            <h1 style="margin-top:0;">System Overview</h1>
+            
+            <div class="stats-grid">
+                <div class="stat-card">
+                    <div class="stat-label">Total Users</div>
+                    <div class="stat-val" id="count-users">-</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-label">Total Saved Articles</div>
+                    <div class="stat-val" id="count-saved">-</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-label">API Status</div>
+                    <div class="stat-val" style="color:var(--primary); font-size:1.5rem;">Online</div>
+                </div>
+            </div>
+
+            <h3>Recent Activity</h3>
+            <div style="background:white; border-radius:12px; padding:20px;">
+                <canvas id="activityChart" style="height:250px;"></canvas>
+            </div>
+        </div>
+
+        <div id="view-users" style="display:none;">
+            <h1 style="margin-top:0;">User Management</h1>
+            <table class="data-table">
+                <thead>
+                    <tr>
+                        <th>User</th>
+                        <th>Email</th>
+                        <th>Department</th>
+                        <th>Role</th>
+                        <th>Joined</th>
+                    </tr>
+                </thead>
+                <tbody id="users-table-body">
+                    </tbody>
+            </table>
+        </div>
+
+    </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script>
+    // Simple Router
+    function switchView(view) {
+        document.getElementById('view-dashboard').style.display = view === 'dashboard' ? 'block' : 'none';
+        document.getElementById('view-users').style.display = view === 'users' ? 'block' : 'none';
+        
+        document.querySelectorAll('.admin-nav button').forEach(b => b.classList.remove('active'));
+        event.currentTarget.classList.add('active');
     }
 
-    window.onload = loadAdminData;
-  </script>
+    // Load Data
+    window.onload = async () => {
+        try {
+            const res = await fetch('/admin/stats');
+            if(res.status === 401 || res.status === 403) {
+                alert("Access Denied: You are not an Admin.");
+                window.location.href = '/';
+                return;
+            }
+            const data = await res.json();
+
+            // Fill Stats
+            document.getElementById('count-users').innerText = data.userCount;
+            document.getElementById('count-saved').innerText = data.savedCount;
+
+            // Fill Table
+            const tbody = document.getElementById('users-table-body');
+            tbody.innerHTML = data.users.map(u => `
+                <tr class="user-row">
+                    <td><img src="${u.photo_url || ''}">${u.name}</td>
+                    <td>${u.email}</td>
+                    <td><span class="badge">${u.department}</span></td>
+                    <td>${u.role}</td>
+                    <td>${new Date(u.created_at).toLocaleDateString()}</td>
+                </tr>
+            `).join('');
+
+            // Draw Chart
+            new Chart(document.getElementById('activityChart'), {
+                type: 'line',
+                data: {
+                    labels: ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'],
+                    datasets: [{
+                        label: 'Active Users',
+                        data: [12, 19, 3, 5, 2, 3, data.userCount],
+                        borderColor: '#7dba28',
+                        tension: 0.4
+                    }]
+                },
+                options: { responsive: true, maintainAspectRatio: false }
+            });
+
+        } catch(e) { console.error(e); }
+    };
+</script>
 </body>
 </html>
