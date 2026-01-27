@@ -7,11 +7,11 @@
     
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link href="https://fonts.googleapis.com/css2?family=Merriweather:wght@300;400;700&display=swap" rel="stylesheet">
     
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     
     <link rel="stylesheet" href="style.css">
-    <link href="https://fonts.googleapis.com/css2?family=Merriweather:wght@300;400;700&display=swap" rel="stylesheet">
 </head>
 <body>
 
@@ -21,63 +21,63 @@
             <div class="blob blob-2"></div>
 
             <div class="login-card">
-            <div class="logo-section">
-                <img src="img/LOGO_ITParkll.png" alt="IT Park Logo" class="login-logo">
-                <span class="badge-beta">Internal Portal</span>
-            </div>
-            
-            <div class="auth-toggle">
-                <button id="btn-show-login" class="active" onclick="toggleAuthMode('login')">Sign In</button>
-                <button id="btn-show-register" onclick="toggleAuthMode('register')">Register</button>
-            </div>
-
-            <div id="form-login">
-                <h1 style="font-size:1.5rem; margin-bottom:5px;">Welcome Back</h1>
-                <p class="subtitle" style="margin-bottom:20px;">Enter your credentials to access</p>
-
-                <div class="input-group">
-                    <input type="email" id="login-email" placeholder="Email Address">
-                </div>
-                <div class="input-group">
-                    <input type="password" id="login-password" placeholder="Password">
+                <div class="logo-section">
+                    <img src="img/LOGO_ITParkll.png" alt="IT Park Logo" class="login-logo">
+                    <span class="badge-beta">Internal Portal</span>
                 </div>
                 
-                <button class="primary-btn" onclick="handleManualLogin()">Sign In</button>
+                <div class="auth-toggle">
+                    <button id="btn-show-login" class="active" onclick="toggleAuthMode('login')">Sign In</button>
+                    <button id="btn-show-register" onclick="toggleAuthMode('register')">Register</button>
+                </div>
 
-                <div class="divider"><span>OR</span></div>
+                <div id="form-login">
+                    <h1 style="font-size:1.5rem; margin-bottom:5px;">Welcome Back</h1>
+                    <p class="subtitle" style="margin-bottom:20px;">Enter your credentials to access</p>
 
-                <button class="google-btn-large" onclick="loginWithGoogle()">
-                    <div class="icon-wrapper"><img src="img/google.webp" width="20"></div>
-                    <span class="btn-title">Continue with Google</span>
-                </button>
+                    <div class="input-group">
+                        <input type="email" id="login-email" placeholder="Email Address">
+                    </div>
+                    <div class="input-group">
+                        <input type="password" id="login-password" placeholder="Password">
+                    </div>
+                    
+                    <button class="primary-btn" onclick="handleManualLogin()">Sign In</button>
+
+                    <div class="divider"><span>OR</span></div>
+
+                    <button class="google-btn-large" onclick="loginWithGoogle()">
+                        <div class="icon-wrapper"><img src="img/google.webp" width="20"></div>
+                        <span class="btn-title">Continue with Google</span>
+                    </button>
+                </div>
+
+                <div id="form-register" style="display:none;">
+                    <h1 style="font-size:1.5rem; margin-bottom:5px;">New Account</h1>
+                    <p class="subtitle" style="margin-bottom:20px;">Join the Strategy Department</p>
+
+                    <div class="input-group">
+                        <input type="text" id="reg-name" placeholder="Full Name">
+                    </div>
+                    <div class="input-group">
+                        <input type="email" id="reg-email" placeholder="Email Address">
+                    </div>
+                    <div class="input-group">
+                        <select id="reg-dept">
+                            <option value="General">Select Department...</option>
+                            <option value="Strategy">Strategy</option>
+                            <option value="Data">Data Analysis</option>
+                            <option value="Investment">Investment</option>
+                        </select>
+                    </div>
+                    <div class="input-group">
+                        <input type="password" id="reg-password" placeholder="Create Password">
+                    </div>
+
+                    <button class="primary-btn" onclick="handleRegister()">Create Account</button>
+                </div>
+
             </div>
-
-            <div id="form-register" style="display:none;">
-                <h1 style="font-size:1.5rem; margin-bottom:5px;">New Account</h1>
-                <p class="subtitle" style="margin-bottom:20px;">Join the Strategy Department</p>
-
-                <div class="input-group">
-                    <input type="text" id="reg-name" placeholder="Full Name">
-                </div>
-                <div class="input-group">
-                    <input type="email" id="reg-email" placeholder="Email Address">
-                </div>
-                <div class="input-group">
-                    <select id="reg-dept">
-                        <option value="General">Select Department...</option>
-                        <option value="Strategy">Strategy</option>
-                        <option value="Data">Data Analysis</option>
-                        <option value="Investment">Investment</option>
-                    </select>
-                </div>
-                <div class="input-group">
-                    <input type="password" id="reg-password" placeholder="Create Password">
-                </div>
-
-                <button class="primary-btn" onclick="handleRegister()">Create Account</button>
-            </div>
-
-        </div>
         </div>
     </div>
 
@@ -89,7 +89,6 @@
                     <i class="fa-solid fa-newspaper logo-icon"></i>
                     <h1>IT Park Bulletin</h1>
                 </div>
-                
 
                 <div id="user-info" class="user-profile-pill" style="display:none;">
                     <div class="user-text">
@@ -123,6 +122,9 @@
                     <button onclick="showTab('stats')" id="tab-stats">
                         <i class="fa-solid fa-building"></i> Statistics & Hubs
                     </button>
+                    <button onclick="showTab('companies')" id="tab-companies">
+                        <i class="fa-solid fa-building-columns"></i> Market Intel
+                    </button>
                 </nav>
 
                 <div class="report-box" id="report-actions">
@@ -136,7 +138,7 @@
 
             <section class="content-area">
                 
-                <div class="content-header">
+                <div class="content-header" id="main-header">
                     <h2 id="tab-title">News Feed</h2>
                 </div>
 
@@ -165,7 +167,7 @@
                         </div>
 
                         <div class="select-wrapper">
-                            <select id="country-filter" onchange="if(currentTab === 'all') { resetNews(); loadNews(); } else if(currentTab === 'nla') { loadNLA(); } else if(currentTab === 'stats') { loadStats(); }">
+                            <select id="country-filter" onchange="if(currentTab === 'all') { resetNews(); loadNews(); }">
                                 <option value="">Global (All Countries)</option>
                                 <option value="us">🇺🇸 USA (Silicon Valley)</option>
                                 <option value="gb">🇬🇧 United Kingdom</option>
@@ -192,9 +194,9 @@
                     <div class="spinner"></div>
                 </div>
 
-                <main id="news-container"></main>
+                <main id="news-container" class="tab-content"></main>
 
-                <div id="dashboard-container" style="display:none;">
+                <div id="dashboard-container" class="tab-content" style="display:none;">
                     <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(350px, 1fr)); gap: 20px;">
                         <div style="background:white; padding:20px; border-radius:12px; border:1px solid #e2e8f0;">
                             <h3 style="margin-top:0; color:#1e293b; font-size:1rem;">Topic Distribution</h3>
@@ -211,24 +213,70 @@
                     </div>
                 </div>
 
-                <div id="nla-container" style="display:none;">
-    <div style="margin-bottom: 20px; font-weight: 600; font-size: 1.1rem;" id="nla-breadcrumbs">
-        Select Jurisdiction
-    </div>
-    <div id="nla-grid"></div> </div>
+                <div id="nla-container" class="tab-content" style="display:none;">
+                    <div style="margin-bottom: 20px; font-weight: 600; font-size: 1.1rem;" id="nla-breadcrumbs">
+                        Select Jurisdiction
+                    </div>
+                    <div id="nla-grid"></div> 
+                </div>
 
-<div id="nla-reader-modal" class="reader-modal">
-    <div class="reader-box">
-        <div class="reader-header">
-            <button class="close-reader" onclick="closeReader()">&times;</button>
-        </div>
-        <div class="reader-body" id="nla-reader-content">
-            </div>
-    </div>
-</div>
+                <div id="nla-reader-modal" class="reader-modal">
+                    <div class="reader-box">
+                        <div class="reader-header">
+                            <button class="close-reader" onclick="closeReader()">&times;</button>
+                        </div>
+                        <div class="reader-body" id="nla-reader-content"></div>
+                    </div>
+                </div>
 
-                <div id="stats-container" style="display:none;">
+                <div id="stats-container" class="tab-content" style="display:none;">
                     <div class="stats-grid" id="stats-grid"></div>
+                </div>
+
+                <div id="view-companies" class="tab-content" style="display: none;">
+                    <header class="view-header" style="margin-bottom:20px;">
+                        <h1 style="color:var(--text-main); font-size:1.8rem;">🇺🇿 Company Intelligence</h1>
+                        <p style="color:#64748b;">Real-time data from Uzbekistan Registry (Simulated)</p>
+                    </header>
+
+                    <div class="search-container" style="margin-bottom: 30px; display:flex; gap:10px;">
+                        <input type="text" id="company-search" placeholder="Enter Company Name (e.g., Artel, Akfa, GM)..." 
+                               style="flex:1; padding:15px; border-radius:12px; border:1px solid #334155; background:#0f172a; color:white; font-size:1rem;">
+                        <button onclick="searchCompany()" 
+                                style="padding:0 30px; background:#00f3ff; color:#0f172a; border:none; border-radius:12px; font-weight:bold; cursor:pointer;">
+                            <i class="fa-solid fa-search"></i> SEARCH
+                        </button>
+                    </div>
+
+                    <div id="company-results" style="display:none; animation: fadeIn 0.5s ease;">
+                        
+                        <div class="nla-law-card" style="margin-bottom: 25px; display:flex; justify-content:space-between; align-items:center; background: #1e293b; color: white;">
+                            <div>
+                                <h2 id="comp-name" style="margin:0; color:#39ff14; font-size:2rem;">Company Name</h2>
+                                <p id="comp-inn" style="color:#94a3b8; margin:5px 0;">INN: 123456789 | Status: Active</p>
+                                <div style="margin-top:10px;">
+                                    <span class="badge" id="comp-region" style="background:#334155; color:white;">Tashkent City</span>
+                                    <span class="badge" id="comp-type" style="background:rgba(0, 243, 255, 0.2); color:#00f3ff;">LLC</span>
+                                </div>
+                            </div>
+                            <div style="text-align:right;">
+                                <div style="font-size:0.9rem; color:#94a3b8;">Est. Annual Turnover</div>
+                                <div id="comp-revenue" style="font-size:1.8rem; font-weight:bold; color:white;">$0</div>
+                            </div>
+                        </div>
+
+                        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(400px, 1fr)); gap: 20px;">
+                            <div class="nla-law-card" style="height: 350px; background:white; color:#1e293b;">
+                                <h3 style="margin-top:0;">📈 Financial Performance (5 Years)</h3>
+                                <canvas id="revenueChart"></canvas>
+                            </div>
+
+                            <div class="nla-law-card" style="height: 350px; background:white; color:#1e293b;">
+                                <h3 style="margin-top:0;">👥 Workforce & Tax Contribution</h3>
+                                <canvas id="taxChart"></canvas>
+                            </div>
+                        </div>
+                    </div>
                 </div>
 
                 <div id="load-more-container">
@@ -240,5 +288,11 @@
     </div>
 
     <script src="script.js"></script>
+
+    <script>
+        // Ensure showTab handles the new 'companies' view
+        // If your script.js already has showTab, update it to include 'view-companies'
+        // or ensure it hides all .tab-content and shows the selected ID.
+    </script>
 </body>
 </html>
