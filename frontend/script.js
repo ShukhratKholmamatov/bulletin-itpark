@@ -19,6 +19,7 @@ let topicChartInstance = null;
 let sourceChartInstance = null;
 let revenueChartInstance = null; // Market Intel
 let taxChartInstance = null;     // Market Intel
+let localCompaniesDB = null;     // Cache for companies.json
 
 
 /* =========================
@@ -828,10 +829,8 @@ async function loadLawContent(id) {
 }
 
 /* =========================================
-   🇺🇿 MARKET INTEL (LIVE SCRAPER)
+   🇺🇿 MARKET INTEL (LOCAL JSON ENGINE)
    ========================================= */
-
-
 
 async function searchCompany() {
     const query = document.getElementById('company-search').value.toLowerCase().trim();
@@ -842,33 +841,37 @@ async function searchCompany() {
     // UI Loading
     resultContainer.style.opacity = '0.5';
     document.body.style.cursor = 'wait';
-    document.getElementById('comp-name').innerText = "Scanning Registry...";
-    
-    // Reset charts
-    if(revenueChartInstance) revenueChartInstance.destroy();
-    if(taxChartInstance) taxChartInstance.destroy();
+    document.getElementById('comp-name').innerText = "Searching Database...";
 
     try {
-        // 1. Try Scraper (Strict Mode)
-        const res = await fetch(`/api/uz-company-parser?q=${query}`);
-        
-        if (!res.ok) {
-            throw new Error("Scraper returned 404 (No strict match)");
+        // 1. Load JSON (Cache it)
+        if (!localCompaniesDB) {
+            const res = await fetch('companies.json');
+            if (!res.ok) throw new Error("Could not load companies.json");
+            localCompaniesDB = await res.json();
+            console.log(`📚 Database loaded: ${localCompaniesDB.length} records`);
         }
-        
-        const data = await res.json();
-        renderScrapedData(data); // Real Data
+
+        // 2. Search Logic (Search by Name, INN, or Director)
+        // matches "artel", "ortikov", or "713596"
+        const company = localCompaniesDB.find(c => {
+            const rawText = (c.tashkilotnomi + " " + c.fio + " " + c.davlatroyxatidanotgantartibraqamivasanasi).toLowerCase();
+            return rawText.includes(query);
+        });
+
+        if (company) {
+            console.log("✅ Found:", company.tashkilotnomi);
+            const enrichedData = parseUzbekData(company);
+            renderCompanyProfile(enrichedData);
+        } else {
+            alert("Company not found in local database.");
+            // Optional: fallback to simulation if you want
+            // renderCompanyProfile(enrichUzbekCompany({tashkilotnomi: query + " LLC"})); 
+        }
 
     } catch (err) {
-        console.log("⚠️ Scraper failed or no match. Switching to Simulation.");
-        
-        // 2. FALLBACK: Generate Realistic Simulation
-        // This looks much better than "Unknown" data
-        setTimeout(() => {
-            let data = uzbekCompanies[query] || generateRandomCompany(query);
-            renderSimulatedData(data);
-        }, 500);
-
+        console.error("Search Error:", err);
+        alert("Error loading database.");
     } finally {
         document.body.style.cursor = 'default';
         resultContainer.style.display = 'block';
@@ -876,40 +879,125 @@ async function searchCompany() {
     }
 }
 
-function renderScrapedData(data) {
-    // 1. Populate Real Identity Data
-    document.getElementById('comp-name').innerText = data.name;
-    document.getElementById('comp-name').style.color = '#39ff14'; // Neon Green
-    
-    document.getElementById('comp-inn').innerHTML = `
-        <span style="color:#39ff14">● OFFICIAL DATA</span> | INN: ${data.inn} | Director: ${data.director}
-    `;
-    
-    document.getElementById('comp-region').innerText = data.address.substring(0, 30) + '...'; // Shorten address
-    document.getElementById('comp-type').innerText = data.status;
+// ----------------------------------------------------
+// 🧠 PARSING ENGINE: Extracts INN & Date
+// ----------------------------------------------------
+function parseUzbekData(raw) {
+    // 1. Clean Name
+    let cleanName = raw.tashkilotnomi
+        .replace(/“|”|"/g, '')
+        .replace(/limitd liability company/gi, '')
+        .replace(/limited liability company/gi, '')
+        .replace(/MCHJ/gi, '')
+        .replace(/LLC/gi, '')
+        .trim();
 
-    // 2. ESTIMATE Financials (Since Revenue is Secret)
-    // Rule of thumb: Annual Revenue ≈ 20x to 50x of Authorized Capital
-    const estimatedRevenue = data.capital * 45; 
+    // 2. Extract INN & Date from the messy string
+    // Example: "Registered with the order number № 713596 in 19.04.2019"
+    const metaString = raw.davlatroyxatidanotgantartibraqamivasanasi || "";
     
-    // Format Money
-    const fmtRev = (estimatedRevenue > 1000000000) 
-        ? (estimatedRevenue / 1000000000).toFixed(1) + 'B UZS' 
-        : (estimatedRevenue / 1000000).toFixed(1) + 'M UZS';
-    
-    document.getElementById('comp-revenue').innerText = '≈ ' + fmtRev;
+    // Regex for Date (DD.MM.YYYY or DD/MM/YYYY)
+    const dateMatch = metaString.match(/(\d{2}[./-]\d{2}[./-]\d{4})/);
+    const regDate = dateMatch ? dateMatch[0] : "Unknown";
 
-    // 3. Generate Charts based on this Real Capital
-    const years = ['2020', '2021', '2022', '2023', '2024'];
-    const growthFactor = estimatedRevenue / 1000000; // Convert to Millions for chart
-    
-    const revData = [growthFactor*0.6, growthFactor*0.75, growthFactor*0.8, growthFactor*0.9, growthFactor];
-    const taxData = [growthFactor * 0.12, growthFactor * 0.4, growthFactor * 0.48]; // 12% Tax approx
+    // Regex for INN/Order Number (Look for digits after '№' or at start)
+    let regInn = "Unknown";
+    const innMatch = metaString.match(/№\s*(\d+)/); // Matches "№ 713596"
+    if (innMatch) {
+        regInn = innMatch[1];
+    } else {
+        // Fallback: match the first long number found
+        const numMatch = metaString.match(/\d{6,}/); 
+        if (numMatch) regInn = numMatch[0];
+    }
 
-    drawCharts(years, revData, taxData, '#39ff14');
+    // 3. Derive Industry & Color (AI Logic)
+    let industry = "General Business";
+    let color = "#64748b"; // Grey
+    let baseCapital = 500000000; // 500M default
+    const nameUpper = cleanName.toUpperCase();
+
+    if (nameUpper.includes("CONSULT") || nameUpper.includes("LEGAL") || nameUpper.includes("YURIDIK") || nameUpper.includes("LAW")) {
+        industry = "Legal & Consulting"; color = "#8b5cf6"; baseCapital = 300000000;
+    } else if (nameUpper.includes("TECH") || nameUpper.includes("SOFT") || nameUpper.includes("SYSTEM")) {
+        industry = "IT Services"; color = "#39ff14"; baseCapital = 1000000000;
+    } else if (nameUpper.includes("BUILD") || nameUpper.includes("STROY") || nameUpper.includes("QURILISH")) {
+        industry = "Construction"; color = "#f97316"; baseCapital = 5000000000;
+    } else if (nameUpper.includes("TRADE") || nameUpper.includes("SAVDO") || nameUpper.includes("COMMERCE")) {
+        industry = "Trade & Retail"; color = "#eab308"; baseCapital = 2000000000;
+    }
+
+    // 4. Simulate Financials based on parsed data
+    const estimatedRevenue = baseCapital * (Math.floor(Math.random() * 10) + 5); 
+
+    return {
+        name: cleanName,
+        inn: regInn,
+        reg_date: regDate,
+        region: raw.Hudud || "Uzbekistan",
+        address: raw.kontakti || "No Address Listed",
+        director: raw.fio || "Not Listed",
+        
+        // Visuals
+        industry: industry,
+        color: color,
+        revenue: estimatedRevenue
+    };
 }
 
-// Reuse your existing drawCharts function...
+// ----------------------------------------------------
+// 🎨 RENDER UI
+// ----------------------------------------------------
+function renderCompanyProfile(data) {
+    // 1. Company Title
+    document.getElementById('comp-name').innerText = data.name;
+    document.getElementById('comp-name').style.color = data.color;
+
+    // 2. OFFICIAL DATA BADGE
+    // We inject the extracted INN and Date here
+    document.getElementById('comp-inn').innerHTML = `
+        <span style="color:${data.color}; font-weight:bold;">● REGISTERED</span> 
+        &nbsp;|&nbsp; <i class="fa-solid fa-passport"></i> INN: <b>${data.inn}</b> 
+        &nbsp;|&nbsp; <i class="fa-solid fa-calendar"></i> Date: <b>${data.reg_date}</b>
+    `;
+
+    // 3. Location & Type
+    document.getElementById('comp-region').innerText = data.region;
+    document.getElementById('comp-type').innerText = data.industry;
+    document.getElementById('comp-type').style.background = data.color + "20"; 
+    document.getElementById('comp-type').style.color = data.color;
+
+    // 4. Contact & Owner Info (New Section)
+    // We add this dynamically below the badges
+    let extraInfo = document.getElementById('comp-extra-info');
+    if(!extraInfo) {
+        extraInfo = document.createElement('div');
+        extraInfo.id = 'comp-extra-info';
+        extraInfo.style.cssText = "margin-top:15px; padding:15px; background:rgba(255,255,255,0.05); border-radius:10px; font-size:0.9rem; color:#cbd5e1;";
+        document.querySelector('#company-results .nla-law-card > div').appendChild(extraInfo);
+    }
+    
+    extraInfo.innerHTML = `
+        <div style="margin-bottom:5px;"><i class="fa-solid fa-user-tie" style="width:20px; text-align:center;"></i> <b>Owner/Director:</b> ${data.director}</div>
+        <div><i class="fa-solid fa-map-location-dot" style="width:20px; text-align:center;"></i> <b>Address:</b> ${data.address}</div>
+    `;
+
+    // 5. Financials
+    const fmtRev = (data.revenue > 1000000000) 
+        ? (data.revenue / 1000000000).toFixed(1) + 'B UZS' 
+        : (data.revenue / 1000000).toFixed(1) + 'M UZS';
+    
+    document.getElementById('comp-revenue').innerText = "≈ " + fmtRev;
+
+    // 6. Draw Charts
+    const growth = data.revenue / 1000000; 
+    const revData = [growth*0.5, growth*0.65, growth*0.8, growth*0.9, growth];
+    const taxData = [growth*0.12, growth*0.35, growth*0.53]; 
+
+    drawCharts(['2020', '2021', '2022', '2023', '2024'], revData, taxData, data.color);
+}
+
+// 5. CHART DRAWER
 function drawCharts(labels, revData, taxData, color) {
     const ctxRev = document.getElementById('revenueChart').getContext('2d');
     const ctxTax = document.getElementById('taxChart').getContext('2d');
@@ -922,7 +1010,7 @@ function drawCharts(labels, revData, taxData, color) {
         data: {
             labels: labels,
             datasets: [{
-                label: 'Est. Revenue (Million UZS)',
+                label: 'Est. Revenue (M UZS)',
                 data: revData,
                 borderColor: color,
                 backgroundColor: color + '20',
@@ -931,8 +1019,7 @@ function drawCharts(labels, revData, taxData, color) {
             }]
         },
         options: {
-            responsive: true,
-            maintainAspectRatio: false,
+            responsive: true, maintainAspectRatio: false,
             scales: { y: { grid: { color: 'rgba(255,255,255,0.1)' } }, x: { grid: { display: false } } },
             plugins: { legend: { display: false } }
         }
@@ -949,8 +1036,7 @@ function drawCharts(labels, revData, taxData, color) {
             }]
         },
         options: {
-            responsive: true,
-            maintainAspectRatio: false,
+            responsive: true, maintainAspectRatio: false,
             plugins: { legend: { position: 'right', labels: { color: '#cbd5e1' } } }
         }
     });
