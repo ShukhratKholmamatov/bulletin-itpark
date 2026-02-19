@@ -1,0 +1,256 @@
+openapi: 3.0.0
+info:
+  title: IT Park Bulletin API
+  description: API for News Aggregation, Market Intelligence, and Legal Analysis
+  version: 1.0.0
+servers:
+  - url: http://localhost:3000
+    description: Local Development Server
+  - url: https://bulletin-itpark.vercel.app
+    description: Vercel Production Server
+
+components:
+  securitySchemes:
+    cookieAuth:
+      type: apiKey
+      in: cookie
+      name: session
+  schemas:
+    User:
+      type: object
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        email:
+          type: string
+        department:
+          type: string
+        role:
+          type: string
+    NewsItem:
+      type: object
+      properties:
+        id:
+          type: string
+        title:
+          type: string
+        description:
+          type: string
+        url:
+          type: string
+        source:
+          type: string
+        published_at:
+          type: string
+
+paths:
+  # ===========================
+  # 🔐 AUTHENTICATION
+  # ===========================
+  /auth/register:
+    post:
+      summary: Register a new user
+      tags: [Auth]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name, email, password]
+              properties:
+                name:
+                  type: string
+                email:
+                  type: string
+                password:
+                  type: string
+                department:
+                  type: string
+      responses:
+        200:
+          description: Registration successful
+        400:
+          description: User already exists
+
+  /auth/login:
+    post:
+      summary: Login with Email & Password
+      tags: [Auth]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email, password]
+              properties:
+                email:
+                  type: string
+                password:
+                  type: string
+      responses:
+        200:
+          description: Login successful
+        401:
+          description: Invalid credentials
+
+  /auth/current:
+    get:
+      summary: Get current logged-in user
+      tags: [Auth]
+      security:
+        - cookieAuth: []
+      responses:
+        200:
+          description: User details
+        401:
+          description: Not authenticated
+
+  /auth/logout:
+    get:
+      summary: Logout user
+      tags: [Auth]
+      responses:
+        200:
+          description: Logged out successfully
+
+  # ===========================
+  # 📰 NEWS & SAVED ITEMS
+  # ===========================
+  /news:
+    get:
+      summary: Fetch latest news from Google RSS
+      tags: [News]
+      parameters:
+        - in: query
+          name: topic
+          schema:
+            type: string
+        - in: query
+          name: country
+          schema:
+            type: string
+            enum: [uz, kz, us, gb]
+      responses:
+        200:
+          description: List of news articles
+
+  /news/save:
+    post:
+      summary: Save a news article to bookmarks
+      tags: [Saved News]
+      security:
+        - cookieAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [id, title, url]
+              properties:
+                id:
+                  type: string
+                title:
+                  type: string
+                url:
+                  type: string
+                description:
+                  type: string
+      responses:
+        200:
+          description: Article saved
+
+  /news/saved:
+    get:
+      summary: Get all saved articles for current user
+      tags: [Saved News]
+      security:
+        - cookieAuth: []
+      responses:
+        200:
+          description: List of saved articles
+
+  /news/share:
+    post:
+      summary: Share news to Telegram Channel
+      tags: [News]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [title, url]
+              properties:
+                title:
+                  type: string
+                url:
+                  type: string
+                description:
+                  type: string
+      responses:
+        200:
+          description: Sent to Telegram
+
+  /news/report:
+    post:
+      summary: Generate PDF Report from selected news
+      tags: [News]
+      responses:
+        200:
+          description: PDF File Stream
+          content:
+            application/pdf:
+              schema:
+                type: string
+                format: binary
+
+  # ===========================
+  # ⚖️ NLA (LAWS) & MARKET INTEL
+  # ===========================
+  /nla/live/search:
+    get:
+      summary: Search Uzbekistan Laws (Lex.uz)
+      tags: [NLA]
+      parameters:
+        - in: query
+          name: query
+          required: true
+          schema:
+            type: string
+      responses:
+        200:
+          description: Search results from Lex.uz
+
+  /nla/live/kz/search:
+    get:
+      summary: Search Kazakhstan Laws (Adilet)
+      tags: [NLA]
+      parameters:
+        - in: query
+          name: query
+          required: true
+          schema:
+            type: string
+      responses:
+        200:
+          description: Search results from Adilet.zan.kz
+
+  /api/uz-company-parser:
+    get:
+      summary: Parse Uzbekistan Company Data (Orginfo via Bing)
+      tags: [Market Intel]
+      parameters:
+        - in: query
+          name: q
+          required: true
+          schema:
+            type: string
+            example: "Artel"
+      responses:
+        200:
+          description: Company Profile (Director, INN, Address)

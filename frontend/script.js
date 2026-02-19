@@ -371,11 +371,12 @@ function createCard(container, item) {
   const card = document.createElement('div');
   card.className = 'news-card';
 
+  const placeholderHTML = `<div style="width:100%;height:100%;background:#e2e8f0;display:flex;align-items:center;justify-content:center;color:#94a3b8;"><i class="fa-solid fa-image fa-2x"></i></div>`;
   let imageHTML = `<div class="card-image-wrapper">`;
   if (item.image) {
-    imageHTML += `<img src="${item.image}" onerror="this.style.display='none'">`;
+    imageHTML += `<img src="${item.image}" onerror="this.onerror=null;this.parentElement.innerHTML=\`${placeholderHTML}\`">`;
   } else {
-    imageHTML += `<div style="width:100%;height:100%;background:#e2e8f0;display:flex;align-items:center;justify-content:center;color:#94a3b8;"><i class="fa-solid fa-image fa-2x"></i></div>`;
+    imageHTML += placeholderHTML;
   }
   imageHTML += `</div>`;
 
@@ -390,12 +391,15 @@ function createCard(container, item) {
     ? `<button class="share-btn" title="Send to Telegram Group"><i class="fa-brands fa-telegram"></i></button>` 
     : '';
 
+  const dateStr = item.published_at ? new Date(item.published_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }) : '';
+
   card.innerHTML = `
     ${imageHTML}
     <div class="card-body">
       <div class="card-meta">
         <span class="badge">${item.topic || 'General'}</span>
         <span>• ${item.source || 'Unknown'}</span>
+        ${dateStr ? `<span>• <i class="fa-regular fa-calendar"></i> ${dateStr}</span>` : ''}
       </div>
       <h3 class="card-title">${item.title}</h3>
       <p class="card-desc">${item.description || 'No description available.'}</p>
