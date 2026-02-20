@@ -683,6 +683,21 @@ app.get('/news', async (req, res) => {
 });
 
 /* =========================
+   🖼️ OG:IMAGE PROXY (for news card images)
+========================= */
+app.get('/api/og-image', async (req, res) => {
+    const { url } = req.query;
+    if (!url) return res.status(400).json({ error: 'No url provided' });
+    try {
+        const imgUrl = await scrapeOgImage(url);
+        if (imgUrl) return res.json({ image: imgUrl });
+        res.json({ image: null });
+    } catch (e) {
+        res.json({ image: null });
+    }
+});
+
+/* =========================
    PDF REPORT: Image Helpers
 ========================= */
 async function scrapeOgImage(articleUrl) {

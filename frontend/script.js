@@ -371,11 +371,13 @@ function createCard(container, item) {
   const card = document.createElement('div');
   card.className = 'news-card';
 
-  const placeholderHTML = `<div style="width:100%;height:100%;background:#e2e8f0;display:flex;align-items:center;justify-content:center;color:#94a3b8;"><i class="fa-solid fa-image fa-2x"></i></div>`;
+  const placeholderHTML = `<div style="width:100%;height:100%;background:#e2e8f0;display:flex;align-items:center;justify-content:center;color:#94a3b8;"><i class="fa-solid fa-spinner fa-spin fa-2x"></i></div>`;
+  const noImageHTML = `<div style="width:100%;height:100%;background:#e2e8f0;display:flex;align-items:center;justify-content:center;color:#94a3b8;"><i class="fa-solid fa-image fa-2x"></i></div>`;
   let imageHTML = `<div class="card-image-wrapper">`;
   if (item.image) {
-    imageHTML += `<img src="${item.image}" onerror="this.onerror=null;this.parentElement.innerHTML=\`${placeholderHTML}\`">`;
+    imageHTML += `<img src="${item.image}" onerror="this.onerror=null;this.parentElement.innerHTML=\`${noImageHTML}\`">`;
   } else {
+    // Show loading spinner, then lazy-load og:image from article URL
     imageHTML += placeholderHTML;
   }
   imageHTML += `</div>`;
@@ -456,6 +458,24 @@ function createCard(container, item) {
   }
 
   container.appendChild(card);
+
+  // Lazy-load og:image if no image was provided
+  if (!item.image && item.url) {
+    const wrapper = card.querySelector('.card-image-wrapper');
+    fetch(`/api/og-image?url=${encodeURIComponent(item.url)}`)
+      .then(r => r.json())
+      .then(data => {
+        if (data.image) {
+          item.image = data.image;
+          wrapper.innerHTML = `<img src="${data.image}" onerror="this.onerror=null;this.parentElement.innerHTML='<div style=\\'width:100%;height:100%;background:#e2e8f0;display:flex;align-items:center;justify-content:center;color:#94a3b8;\\'><i class=\\'fa-solid fa-image fa-2x\\'></i></div>'">`;
+        } else {
+          wrapper.innerHTML = `<div style="width:100%;height:100%;background:#e2e8f0;display:flex;align-items:center;justify-content:center;color:#94a3b8;"><i class="fa-solid fa-image fa-2x"></i></div>`;
+        }
+      })
+      .catch(() => {
+        wrapper.innerHTML = `<div style="width:100%;height:100%;background:#e2e8f0;display:flex;align-items:center;justify-content:center;color:#94a3b8;"><i class="fa-solid fa-image fa-2x"></i></div>`;
+      });
+  }
 }
 
 function toggleLoadMore(show) {
