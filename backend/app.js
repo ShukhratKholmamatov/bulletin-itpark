@@ -642,7 +642,7 @@ app.get('/news', async (req, res) => {
         const googleUrl = `https://news.google.com/rss/search?q=${encodeURIComponent(searchQuery)}&hl=en-US${googleGeo}`;
 
         promises.push(parser.parseURL(googleUrl).then(feed => feed.items.map(item => {
-            // Try to extract image from media:content, enclosure, or content HTML
+            // Try to extract image from all possible RSS fields
             let image = null;
             if (item['media:content'] && item['media:content'].length) {
                 const media = item['media:content'].find(m => m.$ && m.$.url);
@@ -651,13 +651,25 @@ app.get('/news', async (req, res) => {
             if (!image && item.enclosure && item.enclosure.url) {
                 image = item.enclosure.url;
             }
-            if (!image && item.content) {
-                const imgMatch = item.content.match(/<img[^>]+src=["']([^"']+)["']/);
-                if (imgMatch) image = imgMatch[1];
+            // Check content, description, and contentEncoded for <img> tags
+            const htmlFields = [item.content, item.description, item.contentEncoded, item.summary].filter(Boolean);
+            if (!image) {
+                for (const html of htmlFields) {
+                    const imgMatch = html.match(/<img[^>]+src=["']([^"']+)["']/);
+                    if (imgMatch && !imgMatch[1].includes('google.com/logos')) {
+                        image = imgMatch[1];
+                        break;
+                    }
+                }
             }
+            // Extract actual source name from title (Google News format: "Title - Source")
+            let source = 'Google News';
+            const srcMatch = item.title && item.title.match(/ - ([^-]+)$/);
+            if (srcMatch) source = srcMatch[1].trim();
+
             return {
                 id: item.link, title: item.title, description: item.contentSnippet || item.title,
-                url: item.link, image, source: 'Google News', published_at: item.pubDate, type: 'google_rss'
+                url: item.link, image, source, published_at: item.pubDate, type: 'google_rss'
             };
         })).catch(e => []));
 
@@ -689,7 +701,9 @@ app.get('/api/og-image', async (req, res) => {
     const { url } = req.query;
     if (!url) return res.status(400).json({ error: 'No url provided' });
     try {
-        const imgUrl = await scrapeOgImage(url);
+        // Resolve Google News redirect to actual article URL first
+        const realUrl = await resolveGoogleNewsUrl(url);
+        const imgUrl = await scrapeOgImage(realUrl);
         if (imgUrl) return res.json({ image: imgUrl });
         res.json({ image: null });
     } catch (e) {
@@ -700,23 +714,66 @@ app.get('/api/og-image', async (req, res) => {
 /* =========================
    PDF REPORT: Image Helpers
 ========================= */
-async function scrapeOgImage(articleUrl) {
+
+// Resolve Google News redirect URLs to the actual article URL
+async function resolveGoogleNewsUrl(url) {
+    if (!url || !url.includes('news.google.com')) return url;
     try {
         const controller = new AbortController();
         const timeout = setTimeout(() => controller.abort(), 5000);
-        const response = await fetch(articleUrl, {
+        const response = await fetch(url, {
             signal: controller.signal,
             headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36' },
+            redirect: 'follow'
+        });
+        clearTimeout(timeout);
+        // After redirect, response.url is the actual article URL
+        if (response.url && !response.url.includes('news.google.com')) {
+            return response.url;
+        }
+        // Fallback: parse the page for the actual link
+        const html = await response.text();
+        const $ = cheerio.load(html);
+        const link = $('a[data-n-au]').attr('href') || $('c-wiz a[href^="http"]').attr('href');
+        return link || url;
+    } catch (e) { return url; }
+}
+
+async function scrapeOgImage(articleUrl) {
+    try {
+        const controller = new AbortController();
+        const timeout = setTimeout(() => controller.abort(), 8000);
+        const response = await fetch(articleUrl, {
+            signal: controller.signal,
+            headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36' },
             redirect: 'follow'
         });
         clearTimeout(timeout);
         if (!response.ok) return null;
         const html = await response.text();
         const $ = cheerio.load(html);
-        return $('meta[property="og:image"]').attr('content')
+
+        // 1. Try standard og:image / twitter:image meta tags
+        let img = $('meta[property="og:image"]').attr('content')
             || $('meta[name="twitter:image"]').attr('content')
-            || $('meta[name="twitter:image:src"]').attr('content')
-            || null;
+            || $('meta[name="twitter:image:src"]').attr('content');
+
+        // Filter out Google logo / tiny placeholder images
+        if (img && (img.includes('google.com/logos') || img.includes('gstatic.com/images/branding'))) {
+            img = null;
+        }
+        if (img) return img;
+
+        // 2. Fallback: find the first large article image in the page
+        const candidates = $('article img[src], .article img[src], .post img[src], figure img[src], .story img[src], [role="main"] img[src]');
+        for (let i = 0; i < candidates.length && i < 5; i++) {
+            const src = $(candidates[i]).attr('src');
+            const width = parseInt($(candidates[i]).attr('width')) || 0;
+            if (src && !src.includes('logo') && !src.includes('icon') && !src.includes('avatar') && (width === 0 || width >= 200)) {
+                return src.startsWith('//') ? 'https:' + src : src;
+            }
+        }
+        return null;
     } catch (e) { return null; }
 }
 
@@ -764,11 +821,14 @@ app.post('/news/report', async (req, res) => {
         const maxDate = dates.length ? new Date(Math.max(...dates)) : new Date();
         const fmtDate = d => d.toLocaleDateString('en-GB', { day: '2-digit', month: 'long', year: 'numeric' });
 
-        // ---- Fetch article images in parallel (scrape og:image) ----
+        // ---- Fetch article images in parallel (resolve Google News URLs + scrape og:image) ----
         const imageBuffers = await Promise.all(news.map(async (item) => {
             try {
                 let imgUrl = item.image;
-                if (!imgUrl && item.url) imgUrl = await scrapeOgImage(item.url);
+                if (!imgUrl && item.url) {
+                    const realUrl = await resolveGoogleNewsUrl(item.url);
+                    imgUrl = await scrapeOgImage(realUrl);
+                }
                 return imgUrl ? await fetchImageBuffer(imgUrl) : null;
             } catch (e) { return null; }
         }));
