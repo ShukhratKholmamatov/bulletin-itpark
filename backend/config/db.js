@@ -3,30 +3,25 @@ const path = require('path');
 const fs = require('fs');
 
 /* =========================================
-   📂 VERCEL FILE SYSTEM ADAPTER
+   📂 DATABASE PATH SETUP
    ========================================= */
-// 1. Determine the paths
-// Source: Where the file lives in your project folder (Read-Only on Vercel)
-const dbSource = path.join(__dirname, '../database/news.db');
-// Target: Where we will actually use it (Writable on Vercel)
+const dbDir = path.join(__dirname, '../database');
+const dbSource = path.join(dbDir, 'news.db');
 let dbPath = dbSource;
 
-// 2. If running on Vercel, swap to /tmp
+// Ensure the database directory exists (critical for fresh deployments like Render)
+if (!fs.existsSync(dbDir)) {
+    fs.mkdirSync(dbDir, { recursive: true });
+    console.log('📁 Created database directory:', dbDir);
+}
+
+// If running on Vercel, swap to /tmp (Vercel filesystem is read-only)
 if (process.env.VERCEL) {
     const tmpDbPath = '/tmp/news.db';
-    
-    // Copy the DB to /tmp if it doesn't exist there yet
-    if (!fs.existsSync(tmpDbPath)) {
-        if (fs.existsSync(dbSource)) {
-            // Copy existing data (with seeded NLA/Stats) to the writable location
-            const data = fs.readFileSync(dbSource);
-            fs.writeFileSync(tmpDbPath, data);
-            console.log('✅ Database copied to /tmp for Vercel write access');
-        } else {
-            console.log('⚠️ Source DB not found. Creating new empty one in /tmp');
-        }
+    if (!fs.existsSync(tmpDbPath) && fs.existsSync(dbSource)) {
+        fs.writeFileSync(tmpDbPath, fs.readFileSync(dbSource));
+        console.log('✅ Database copied to /tmp for Vercel write access');
     }
-    // Switch active path to the writable one
     dbPath = tmpDbPath;
 }
 
