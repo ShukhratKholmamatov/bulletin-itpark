@@ -239,10 +239,10 @@ function showTab(tab) {
     loadStats();
 
   } else if (tab === 'companies') {
-    // NEW: Market Intel Tab
     if(tabTitle) tabTitle.innerText = 'Market Intelligence';
     if(companyContainer) companyContainer.style.display = 'block';
     if(filters) filters.style.display = 'none';
+    initCompaniesTab();
 
   } else {
     // 'all' (News Feed)
@@ -853,215 +853,224 @@ async function loadLawContent(id) {
 }
 
 /* =========================================
-   🇺🇿 MARKET INTEL (LOCAL JSON ENGINE)
+   MARKET INTEL (COMPANY REGISTRY)
    ========================================= */
 
-async function searchCompany() {
-    const query = document.getElementById('company-search').value.toLowerCase().trim();
-    const resultContainer = document.getElementById('company-results');
-    
-    if(!query) return alert("Please enter a company name!");
+// OKED classification mapping (derived from company name keywords)
+const OKED_MAP = [
+    { code: '62.01', name: 'Software Development', keywords: ['SOFT', 'PROGRAM', 'DEVELOP', 'IT ', 'TECH', 'DIGITAL', 'SYSTEM', 'INNOVA', 'CYBER', 'DATA', 'CLOUD', 'WEB', 'APP', 'MOBILE', 'KOMPYUTER', 'RAQAMLI'] },
+    { code: '69.10', name: 'Legal Services', keywords: ['LEGAL', 'LAW', 'YURIDIK', 'HUQUQ', 'ADVOKAT', 'NOTARI', 'ЮРИДИК', 'ПРАВО'] },
+    { code: '70.22', name: 'Business Consulting', keywords: ['CONSULT', 'CONSALT', 'MASLAHAT', 'ADVISORY', 'AUDIT', 'EXPERT'] },
+    { code: '41.20', name: 'Construction', keywords: ['BUILD', 'STROY', 'QURILISH', 'CONSTRUCT'] },
+    { code: '47.91', name: 'Trade & Retail', keywords: ['TRADE', 'SAVDO', 'COMMERCE', 'IMPORT', 'EXPORT', 'MARKET'] },
+    { code: '85.59', name: 'Education & Training', keywords: ['ACADEMY', 'EDUCATION', 'TRAINING', 'TALIM', 'SCHOOL', 'INSTITUT', 'TEACH'] },
+    { code: '62.09', name: 'IT Consulting', keywords: ['AXBOROT', 'INFORMATSION', 'SERVIS', 'SERVICE', 'SOLUTION', 'INTEGR'] },
+    { code: '63.11', name: 'Data Processing', keywords: ['PROCESSING', 'ANALYTIC', 'MINING', 'INTELLECT', 'AI ', 'ROBOT'] },
+    { code: '64.19', name: 'Financial Services', keywords: ['FINANC', 'MOLIYA', 'BANK', 'INVEST', 'KREDIT', 'INSURANCE', 'SUGURTA'] },
+    { code: '73.11', name: 'Advertising & Media', keywords: ['MEDIA', 'REKLAM', 'ADVERT', 'MARKETING', 'DESIGN', 'CREATIVE', 'BRAND', 'PR ', 'STUDIO'] },
+    { code: '86.90', name: 'Healthcare', keywords: ['MEDIC', 'HEALTH', 'TIBBIY', 'PHARMA', 'KLINIK', 'HOSPITAL'] },
+    { code: '01.11', name: 'Agriculture', keywords: ['AGRO', 'FARM', 'QISHLOQ', 'DEHQON'] },
+    { code: '49.41', name: 'Transport & Logistics', keywords: ['TRANSPORT', 'LOGIST', 'CARGO', 'TASHISH', 'DELIVER', 'EXPRESS'] },
+    { code: '68.20', name: 'Real Estate', keywords: ['ESTATE', 'PROPERTY', 'MULK', 'REALT'] },
+    { code: '96.09', name: 'Other Services', keywords: [] }
+];
 
-    // UI Loading
-    resultContainer.style.opacity = '0.5';
-    document.body.style.cursor = 'wait';
-    document.getElementById('comp-name').innerText = "Searching Database...";
-
-    try {
-        // 1. Load JSON (Cache it)
-        if (!localCompaniesDB) {
-            const res = await fetch('companies.json');
-            if (!res.ok) throw new Error("Could not load companies.json");
-            localCompaniesDB = await res.json();
-            console.log(`📚 Database loaded: ${localCompaniesDB.length} records`);
+function deriveOKED(companyName) {
+    const upper = companyName.toUpperCase();
+    for (const entry of OKED_MAP) {
+        if (entry.keywords.some(kw => upper.includes(kw))) {
+            return { code: entry.code, name: entry.name };
         }
-
-        // 2. Search Logic (Search by Name, INN, or Director)
-        // matches "artel", "ortikov", or "713596"
-        const company = localCompaniesDB.find(c => {
-            const rawText = (c.tashkilotnomi + " " + c.fio + " " + c.davlatroyxatidanotgantartibraqamivasanasi).toLowerCase();
-            return rawText.includes(query);
-        });
-
-        if (company) {
-            console.log("✅ Found:", company.tashkilotnomi);
-            const enrichedData = parseUzbekData(company);
-            renderCompanyProfile(enrichedData);
-        } else {
-            alert("Company not found in local database.");
-            // Optional: fallback to simulation if you want
-            // renderCompanyProfile(enrichUzbekCompany({tashkilotnomi: query + " LLC"})); 
-        }
-
-    } catch (err) {
-        console.error("Search Error:", err);
-        alert("Error loading database.");
-    } finally {
-        document.body.style.cursor = 'default';
-        resultContainer.style.display = 'block';
-        resultContainer.style.opacity = '1';
     }
+    return { code: '96.09', name: 'Other Services' };
 }
 
-// ----------------------------------------------------
-// 🧠 PARSING ENGINE: Extracts INN & Date
-// ----------------------------------------------------
-function parseUzbekData(raw) {
-    // 1. Clean Name
-    let cleanName = raw.tashkilotnomi
-        .replace(/“|”|"/g, '')
+function cleanCompanyName(raw) {
+    return raw
+        .replace(/\u201C|\u201D|\u201E|”|”/g, '”')
+        .replace(/”([^”]+)”/g, '$1')
         .replace(/limitd liability company/gi, '')
         .replace(/limited liability company/gi, '')
-        .replace(/MCHJ/gi, '')
-        .replace(/LLC/gi, '')
+        .replace(/\bMCHJ\b/gi, '')
+        .replace(/\bMChJ\b/gi, '')
+        .replace(/\bLLC\b/gi, '')
+        .replace(/\bOOO\b/gi, '')
+        .replace(/\s+/g, ' ')
         .trim();
-
-    // 2. Extract INN & Date from the messy string
-    // Example: "Registered with the order number № 713596 in 19.04.2019"
-    const metaString = raw.davlatroyxatidanotgantartibraqamivasanasi || "";
-    
-    // Regex for Date (DD.MM.YYYY or DD/MM/YYYY)
-    const dateMatch = metaString.match(/(\d{2}[./-]\d{2}[./-]\d{4})/);
-    const regDate = dateMatch ? dateMatch[0] : "Unknown";
-
-    // Regex for INN/Order Number (Look for digits after '№' or at start)
-    let regInn = "Unknown";
-    const innMatch = metaString.match(/№\s*(\d+)/); // Matches "№ 713596"
-    if (innMatch) {
-        regInn = innMatch[1];
-    } else {
-        // Fallback: match the first long number found
-        const numMatch = metaString.match(/\d{6,}/); 
-        if (numMatch) regInn = numMatch[0];
-    }
-
-    // 3. Derive Industry & Color (AI Logic)
-    let industry = "General Business";
-    let color = "#64748b"; // Grey
-    let baseCapital = 500000000; // 500M default
-    const nameUpper = cleanName.toUpperCase();
-
-    if (nameUpper.includes("CONSULT") || nameUpper.includes("LEGAL") || nameUpper.includes("YURIDIK") || nameUpper.includes("LAW")) {
-        industry = "Legal & Consulting"; color = "#8b5cf6"; baseCapital = 300000000;
-    } else if (nameUpper.includes("TECH") || nameUpper.includes("SOFT") || nameUpper.includes("SYSTEM")) {
-        industry = "IT Services"; color = "#39ff14"; baseCapital = 1000000000;
-    } else if (nameUpper.includes("BUILD") || nameUpper.includes("STROY") || nameUpper.includes("QURILISH")) {
-        industry = "Construction"; color = "#f97316"; baseCapital = 5000000000;
-    } else if (nameUpper.includes("TRADE") || nameUpper.includes("SAVDO") || nameUpper.includes("COMMERCE")) {
-        industry = "Trade & Retail"; color = "#eab308"; baseCapital = 2000000000;
-    }
-
-    // 4. Simulate Financials based on parsed data
-    const estimatedRevenue = baseCapital * (Math.floor(Math.random() * 10) + 5); 
-
-    return {
-        name: cleanName,
-        inn: regInn,
-        reg_date: regDate,
-        region: raw.Hudud || "Uzbekistan",
-        address: raw.kontakti || "No Address Listed",
-        director: raw.fio || "Not Listed",
-        
-        // Visuals
-        industry: industry,
-        color: color,
-        revenue: estimatedRevenue
-    };
 }
 
-// ----------------------------------------------------
-// 🎨 RENDER UI
-// ----------------------------------------------------
-function renderCompanyProfile(data) {
-    // 1. Company Title
-    document.getElementById('comp-name').innerText = data.name;
-    document.getElementById('comp-name').style.color = data.color;
-
-    // 2. OFFICIAL DATA BADGE
-    // We inject the extracted INN and Date here
-    document.getElementById('comp-inn').innerHTML = `
-        <span style="color:${data.color}; font-weight:bold;">● REGISTERED</span> 
-        &nbsp;|&nbsp; <i class="fa-solid fa-passport"></i> INN: <b>${data.inn}</b> 
-        &nbsp;|&nbsp; <i class="fa-solid fa-calendar"></i> Date: <b>${data.reg_date}</b>
-    `;
-
-    // 3. Location & Type
-    document.getElementById('comp-region').innerText = data.region;
-    document.getElementById('comp-type').innerText = data.industry;
-    document.getElementById('comp-type').style.background = data.color + "20"; 
-    document.getElementById('comp-type').style.color = data.color;
-
-    // 4. Contact & Owner Info (New Section)
-    // We add this dynamically below the badges
-    let extraInfo = document.getElementById('comp-extra-info');
-    if(!extraInfo) {
-        extraInfo = document.createElement('div');
-        extraInfo.id = 'comp-extra-info';
-        extraInfo.style.cssText = "margin-top:15px; padding:15px; background:rgba(255,255,255,0.05); border-radius:10px; font-size:0.9rem; color:#cbd5e1;";
-        document.querySelector('#company-results .nla-law-card > div').appendChild(extraInfo);
-    }
-    
-    extraInfo.innerHTML = `
-        <div style="margin-bottom:5px;"><i class="fa-solid fa-user-tie" style="width:20px; text-align:center;"></i> <b>Owner/Director:</b> ${data.director}</div>
-        <div><i class="fa-solid fa-map-location-dot" style="width:20px; text-align:center;"></i> <b>Address:</b> ${data.address}</div>
-    `;
-
-    // 5. Financials
-    const fmtRev = (data.revenue > 1000000000) 
-        ? (data.revenue / 1000000000).toFixed(1) + 'B UZS' 
-        : (data.revenue / 1000000).toFixed(1) + 'M UZS';
-    
-    document.getElementById('comp-revenue').innerText = "≈ " + fmtRev;
-
-    // 6. Draw Charts
-    const growth = data.revenue / 1000000; 
-    const revData = [growth*0.5, growth*0.65, growth*0.8, growth*0.9, growth];
-    const taxData = [growth*0.12, growth*0.35, growth*0.53]; 
-
-    drawCharts(['2020', '2021', '2022', '2023', '2024'], revData, taxData, data.color);
+function parseRegInfo(metaString) {
+    const dateMatch = (metaString || '').match(/(\d{2}[./-]\d{2}[./-]\d{4})/);
+    const regDate = dateMatch ? dateMatch[0] : '-';
+    let regNo = '-';
+    const noMatch = (metaString || '').match(/[№#]\s*(\d+)/);
+    if (noMatch) regNo = noMatch[1];
+    else { const numMatch = (metaString || '').match(/(\d{5,})/); if (numMatch) regNo = numMatch[1]; }
+    return { regNo, regDate };
 }
 
-// 5. CHART DRAWER
-function drawCharts(labels, revData, taxData, color) {
-    const ctxRev = document.getElementById('revenueChart').getContext('2d');
-    const ctxTax = document.getElementById('taxChart').getContext('2d');
+let parsedCompanies = []; // cached parsed list
 
-    if(revenueChartInstance) revenueChartInstance.destroy();
-    if(taxChartInstance) taxChartInstance.destroy();
+async function loadAllCompanies() {
+    if (!localCompaniesDB) {
+        const res = await fetch('companies.json');
+        if (!res.ok) throw new Error('Could not load companies.json');
+        localCompaniesDB = await res.json();
+    }
 
-    revenueChartInstance = new Chart(ctxRev, {
-        type: 'line',
-        data: {
-            labels: labels,
-            datasets: [{
-                label: 'Est. Revenue (M UZS)',
-                data: revData,
-                borderColor: color,
-                backgroundColor: color + '20',
-                fill: true,
-                tension: 0.4
-            }]
-        },
-        options: {
-            responsive: true, maintainAspectRatio: false,
-            scales: { y: { grid: { color: 'rgba(255,255,255,0.1)' } }, x: { grid: { display: false } } },
-            plugins: { legend: { display: false } }
-        }
+    if (parsedCompanies.length) return parsedCompanies;
+
+    parsedCompanies = localCompaniesDB.map((c, i) => {
+        const name = cleanCompanyName(c.tashkilotnomi);
+        const oked = deriveOKED(c.tashkilotnomi);
+        const { regNo, regDate } = parseRegInfo(c.davlatroyxatidanotgantartibraqamivasanasi);
+        return {
+            idx: i + 1,
+            name,
+            director: c.fio || '-',
+            region: c.Hudud || 'Uzbekistan',
+            address: (c.kontakti || '').trim() || '-',
+            okedCode: oked.code,
+            okedName: oked.name,
+            regNo,
+            regDate,
+            raw: c
+        };
     });
 
-    taxChartInstance = new Chart(ctxTax, {
-        type: 'doughnut',
-        data: {
-            labels: ['Est. Tax (12%)', 'Op. Expenses', 'Net Profit'],
-            datasets: [{
-                data: taxData,
-                backgroundColor: ['#ef4444', '#64748b', color],
-                borderWidth: 0
-            }]
-        },
-        options: {
-            responsive: true, maintainAspectRatio: false,
-            plugins: { legend: { position: 'right', labels: { color: '#cbd5e1' } } }
-        }
-    });
+    return parsedCompanies;
+}
+
+async function initCompaniesTab() {
+    const tbody = document.getElementById('company-tbody');
+    const statsEl = document.getElementById('company-stats');
+    if (!tbody) return;
+
+    tbody.innerHTML = '<tr><td colspan=”6” style=”text-align:center;padding:30px;color:#94a3b8;”>Loading companies...</td></tr>';
+
+    try {
+        const companies = await loadAllCompanies();
+
+        // Populate region filter
+        const regionSelect = document.getElementById('company-region-filter');
+        const regions = [...new Set(companies.map(c => c.region))].sort();
+        regionSelect.innerHTML = '<option value=””>All Regions</option>' + regions.map(r => `<option value=”${r}”>${r}</option>`).join('');
+
+        // Populate OKED filter
+        const okedSelect = document.getElementById('company-oked-filter');
+        const okeds = [...new Set(companies.map(c => c.okedCode + ' - ' + c.okedName))].sort();
+        okedSelect.innerHTML = '<option value=””>All OKED Sectors</option>' + okeds.map(o => `<option value=”${o.split(' - ')[0]}”>${o}</option>`).join('');
+
+        // Stats summary
+        const okedCounts = {};
+        companies.forEach(c => { okedCounts[c.okedName] = (okedCounts[c.okedName] || 0) + 1; });
+        const topOkeds = Object.entries(okedCounts).sort((a, b) => b[1] - a[1]).slice(0, 5);
+        const colors = ['#7dba28','#3b82f6','#f59e0b','#8b5cf6','#ef4444'];
+        statsEl.innerHTML = `
+            <div style=”padding:14px;background:#f0fdf4;border-radius:10px;text-align:center;”>
+                <div style=”font-size:1.6rem;font-weight:700;color:#16a34a;”>${companies.length}</div>
+                <div style=”font-size:0.8rem;color:#64748b;”>Total Companies</div>
+            </div>
+            <div style=”padding:14px;background:#eff6ff;border-radius:10px;text-align:center;”>
+                <div style=”font-size:1.6rem;font-weight:700;color:#2563eb;”>${regions.length}</div>
+                <div style=”font-size:0.8rem;color:#64748b;”>Regions</div>
+            </div>
+        ` + topOkeds.map((o, i) => `
+            <div style=”padding:14px;background:${colors[i]}10;border-radius:10px;text-align:center;”>
+                <div style=”font-size:1.6rem;font-weight:700;color:${colors[i]};”>${o[1]}</div>
+                <div style=”font-size:0.8rem;color:#64748b;”>${o[0]}</div>
+            </div>`).join('');
+
+        renderCompanyTable(companies);
+    } catch (err) {
+        console.error('Company load error:', err);
+        tbody.innerHTML = '<tr><td colspan=”6” style=”text-align:center;padding:30px;color:#ef4444;”>Failed to load company data.</td></tr>';
+    }
+}
+
+function renderCompanyTable(companies) {
+    const tbody = document.getElementById('company-tbody');
+    const countEl = document.getElementById('company-count');
+
+    if (!companies.length) {
+        tbody.innerHTML = '<tr><td colspan=”6” style=”text-align:center;padding:30px;color:#94a3b8;”>No companies match your filters.</td></tr>';
+        countEl.textContent = '0 companies found';
+        return;
+    }
+
+    tbody.innerHTML = companies.map(c => `
+        <tr onclick=”showCompanyDetail(${c.idx - 1})” style=”cursor:pointer; transition:background 0.15s;” onmouseover=”this.style.background='#f1f5f9'” onmouseout=”this.style.background=''”>
+            <td style=”padding:10px 14px; border-bottom:1px solid #f1f5f9; color:#94a3b8;”>${c.idx}</td>
+            <td style=”padding:10px 14px; border-bottom:1px solid #f1f5f9; font-weight:600; color:#1e293b;”>${c.name}</td>
+            <td style=”padding:10px 14px; border-bottom:1px solid #f1f5f9; color:#475569;”>${c.director}</td>
+            <td style=”padding:10px 14px; border-bottom:1px solid #f1f5f9; color:#475569;”>${c.region}</td>
+            <td style=”padding:10px 14px; border-bottom:1px solid #f1f5f9;”>
+                <span style=”display:inline-block;padding:3px 8px;border-radius:6px;background:#eff6ff;color:#2563eb;font-size:0.8rem;font-weight:600;”>${c.okedCode}</span>
+                <span style=”color:#64748b;font-size:0.8rem;margin-left:4px;”>${c.okedName}</span>
+            </td>
+            <td style=”padding:10px 14px; border-bottom:1px solid #f1f5f9; color:#64748b; font-size:0.85rem;”>${c.regNo} / ${c.regDate}</td>
+        </tr>
+    `).join('');
+
+    countEl.textContent = `${companies.length} of ${parsedCompanies.length} companies`;
+}
+
+function filterCompanies() {
+    const query = (document.getElementById('company-search').value || '').toLowerCase().trim();
+    const regionFilter = document.getElementById('company-region-filter').value;
+    const okedFilter = document.getElementById('company-oked-filter').value;
+
+    let filtered = parsedCompanies;
+
+    if (query) {
+        filtered = filtered.filter(c =>
+            c.name.toLowerCase().includes(query) ||
+            c.director.toLowerCase().includes(query) ||
+            c.region.toLowerCase().includes(query) ||
+            c.regNo.includes(query)
+        );
+    }
+    if (regionFilter) filtered = filtered.filter(c => c.region === regionFilter);
+    if (okedFilter) filtered = filtered.filter(c => c.okedCode === okedFilter);
+
+    renderCompanyTable(filtered);
+}
+
+function showCompanyDetail(index) {
+    const c = parsedCompanies[index];
+    if (!c) return;
+
+    const detail = document.getElementById('company-detail');
+    detail.style.display = 'block';
+    detail.innerHTML = `
+        <div style=”display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:16px;”>
+            <div>
+                <h2 style=”margin:0 0 8px 0;color:#1e293b;font-size:1.5rem;”>${c.name}</h2>
+                <div style=”display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px;”>
+                    <span style=”padding:4px 10px;border-radius:6px;background:#eff6ff;color:#2563eb;font-size:0.85rem;font-weight:600;”>OKED ${c.okedCode} — ${c.okedName}</span>
+                    <span style=”padding:4px 10px;border-radius:6px;background:#f0fdf4;color:#16a34a;font-size:0.85rem;font-weight:600;”>Active</span>
+                </div>
+            </div>
+            <button onclick=”document.getElementById('company-detail').style.display='none'” style=”background:none;border:none;font-size:1.3rem;cursor:pointer;color:#94a3b8;”>&times;</button>
+        </div>
+        <div style=”display:grid;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));gap:16px;margin-top:12px;”>
+            <div style=”padding:14px;background:white;border-radius:10px;border:1px solid #e2e8f0;”>
+                <div style=”font-size:0.8rem;color:#94a3b8;margin-bottom:4px;”>Director / Owner</div>
+                <div style=”font-weight:600;color:#1e293b;”><i class=”fa-solid fa-user-tie” style=”color:#3b82f6;margin-right:6px;”></i>${c.director}</div>
+            </div>
+            <div style=”padding:14px;background:white;border-radius:10px;border:1px solid #e2e8f0;”>
+                <div style=”font-size:0.8rem;color:#94a3b8;margin-bottom:4px;”>Region</div>
+                <div style=”font-weight:600;color:#1e293b;”><i class=”fa-solid fa-map-location-dot” style=”color:#f59e0b;margin-right:6px;”></i>${c.region}</div>
+            </div>
+            <div style=”padding:14px;background:white;border-radius:10px;border:1px solid #e2e8f0;”>
+                <div style=”font-size:0.8rem;color:#94a3b8;margin-bottom:4px;”>Registration</div>
+                <div style=”font-weight:600;color:#1e293b;”><i class=”fa-solid fa-id-card” style=”color:#8b5cf6;margin-right:6px;”></i>No. ${c.regNo} &mdash; ${c.regDate}</div>
+            </div>
+            <div style=”padding:14px;background:white;border-radius:10px;border:1px solid #e2e8f0;”>
+                <div style=”font-size:0.8rem;color:#94a3b8;margin-bottom:4px;”>Address</div>
+                <div style=”font-weight:600;color:#1e293b;”><i class=”fa-solid fa-location-dot” style=”color:#ef4444;margin-right:6px;”></i>${c.address}</div>
+            </div>
+        </div>
+    `;
+    detail.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
 }

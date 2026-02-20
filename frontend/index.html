@@ -235,47 +235,48 @@
 
                 <div id="view-companies" class="tab-content" style="display: none;">
                     <header class="view-header" style="margin-bottom:20px;">
-                        <h1 style="color:var(--text-main); font-size:1.8rem;">🇺🇿 Company Intelligence</h1>
-                        <p style="color:#64748b;">Real-time data from Uzbekistan Registry (Simulated)</p>
+                        <h1 style="color:var(--text-main); font-size:1.8rem;">Company Intelligence</h1>
+                        <p style="color:#64748b;">IT Park Uzbekistan — Registered Resident Companies</p>
                     </header>
 
-                    <div class="search-container" style="margin-bottom: 30px; display:flex; gap:10px;">
-                        <input type="text" id="company-search" placeholder="Enter Company Name (e.g., Artel, Akfa, GM)..." 
-                               style="flex:1; padding:15px; border-radius:12px; border:1px solid #334155; background:#0f172a; color:white; font-size:1rem;">
-                        <button onclick="searchCompany()" 
-                                style="padding:0 30px; background:#00f3ff; color:#0f172a; border:none; border-radius:12px; font-weight:bold; cursor:pointer;">
-                            <i class="fa-solid fa-search"></i> SEARCH
-                        </button>
+                    <!-- Search & Filter Bar -->
+                    <div style="margin-bottom:20px; display:flex; gap:10px; flex-wrap:wrap;">
+                        <input type="text" id="company-search" placeholder="Search by name, director, or region..."
+                               oninput="filterCompanies()"
+                               style="flex:1; min-width:200px; padding:12px 16px; border-radius:10px; border:1px solid #cbd5e1; background:white; font-size:0.95rem;">
+                        <select id="company-region-filter" onchange="filterCompanies()"
+                                style="padding:12px 16px; border-radius:10px; border:1px solid #cbd5e1; background:white; font-size:0.95rem; min-width:160px;">
+                            <option value="">All Regions</option>
+                        </select>
+                        <select id="company-oked-filter" onchange="filterCompanies()"
+                                style="padding:12px 16px; border-radius:10px; border:1px solid #cbd5e1; background:white; font-size:0.95rem; min-width:180px;">
+                            <option value="">All OKED Sectors</option>
+                        </select>
                     </div>
 
-                    <div id="company-results" style="display:none; animation: fadeIn 0.5s ease;">
-                        
-                        <div class="nla-law-card" style="margin-bottom: 25px; display:flex; justify-content:space-between; align-items:center; background: #1e293b; color: white;">
-                            <div>
-                                <h2 id="comp-name" style="margin:0; color:#39ff14; font-size:2rem;">Company Name</h2>
-                                <p id="comp-inn" style="color:#94a3b8; margin:5px 0;">INN: 123456789 | Status: Active</p>
-                                <div style="margin-top:10px;">
-                                    <span class="badge" id="comp-region" style="background:#334155; color:white;">Tashkent City</span>
-                                    <span class="badge" id="comp-type" style="background:rgba(0, 243, 255, 0.2); color:#00f3ff;">LLC</span>
-                                </div>
-                            </div>
-                            <div style="text-align:right;">
-                                <div style="font-size:0.9rem; color:#94a3b8;">Est. Annual Turnover</div>
-                                <div id="comp-revenue" style="font-size:1.8rem; font-weight:bold; color:white;">$0</div>
-                            </div>
-                        </div>
+                    <!-- Stats Summary -->
+                    <div id="company-stats" style="display:grid; grid-template-columns:repeat(auto-fit, minmax(140px,1fr)); gap:12px; margin-bottom:20px;"></div>
 
-                        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(400px, 1fr)); gap: 20px;">
-                            <div class="nla-law-card" style="height: 350px; background:white; color:#1e293b;">
-                                <h3 style="margin-top:0;">📈 Financial Performance (5 Years)</h3>
-                                <canvas id="revenueChart"></canvas>
-                            </div>
+                    <!-- Company Table -->
+                    <div style="overflow-x:auto; border-radius:12px; border:1px solid #e2e8f0;">
+                        <table id="company-table" style="width:100%; border-collapse:collapse; font-size:0.9rem;">
+                            <thead>
+                                <tr style="background:#f1f5f9; text-align:left;">
+                                    <th style="padding:12px 14px; font-weight:600; color:#475569;">#</th>
+                                    <th style="padding:12px 14px; font-weight:600; color:#475569;">Company Name</th>
+                                    <th style="padding:12px 14px; font-weight:600; color:#475569;">Director</th>
+                                    <th style="padding:12px 14px; font-weight:600; color:#475569;">Region</th>
+                                    <th style="padding:12px 14px; font-weight:600; color:#475569;">OKED</th>
+                                    <th style="padding:12px 14px; font-weight:600; color:#475569;">Reg. No / Date</th>
+                                </tr>
+                            </thead>
+                            <tbody id="company-tbody"></tbody>
+                        </table>
+                    </div>
+                    <div id="company-count" style="margin-top:12px; color:#64748b; font-size:0.85rem;"></div>
 
-                            <div class="nla-law-card" style="height: 350px; background:white; color:#1e293b;">
-                                <h3 style="margin-top:0;">👥 Workforce & Tax Contribution</h3>
-                                <canvas id="taxChart"></canvas>
-                            </div>
-                        </div>
+                    <!-- Detail Panel (shown when a row is clicked) -->
+                    <div id="company-detail" style="display:none; margin-top:24px; padding:24px; background:#f8fafc; border-radius:12px; border:1px solid #e2e8f0;">
                     </div>
                 </div>
 
