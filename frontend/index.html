@@ -122,8 +122,8 @@
                     <button onclick="showTab('stats')" id="tab-stats">
                         <i class="fa-solid fa-building"></i> Statistics & Hubs
                     </button>
-                    <button onclick="showTab('companies')" id="tab-companies">
-                        <i class="fa-solid fa-building-columns"></i> Market Intel
+                    <button onclick="showTab('archive')" id="tab-archive">
+                        <i class="fa-solid fa-folder-open"></i> Research Archive
                     </button>
                 </nav>
 
@@ -233,51 +233,57 @@
                     <div class="stats-grid" id="stats-grid"></div>
                 </div>
 
-                <div id="view-companies" class="tab-content" style="display: none;">
-                    <header class="view-header" style="margin-bottom:20px;">
-                        <h1 style="color:var(--text-main); font-size:1.8rem;">Company Intelligence</h1>
-                        <p style="color:#64748b;">IT Park Uzbekistan — Registered Resident Companies</p>
-                    </header>
+                <div id="archive-container" class="tab-content" style="display: none;">
+                    <!-- Topic chips bar -->
+                    <div id="archive-topics" style="display:flex; gap:8px; flex-wrap:wrap; margin-bottom:20px;"></div>
 
-                    <!-- Search & Filter Bar -->
-                    <div style="margin-bottom:20px; display:flex; gap:10px; flex-wrap:wrap;">
-                        <input type="text" id="company-search" placeholder="Search by name, director, or region..."
-                               oninput="filterCompanies()"
-                               style="flex:1; min-width:200px; padding:12px 16px; border-radius:10px; border:1px solid #cbd5e1; background:white; font-size:0.95rem;">
-                        <select id="company-region-filter" onchange="filterCompanies()"
-                                style="padding:12px 16px; border-radius:10px; border:1px solid #cbd5e1; background:white; font-size:0.95rem; min-width:160px;">
-                            <option value="">All Regions</option>
-                        </select>
-                        <select id="company-oked-filter" onchange="filterCompanies()"
-                                style="padding:12px 16px; border-radius:10px; border:1px solid #cbd5e1; background:white; font-size:0.95rem; min-width:180px;">
-                            <option value="">All OKED Sectors</option>
-                        </select>
+                    <!-- Search + Add button -->
+                    <div style="display:flex; gap:10px; margin-bottom:20px; flex-wrap:wrap;">
+                        <div style="flex:1; min-width:200px; position:relative;">
+                            <i class="fa-solid fa-magnifying-glass" style="position:absolute; left:14px; top:50%; transform:translateY(-50%); color:#94a3b8;"></i>
+                            <input type="text" id="archive-search" placeholder="Search research..."
+                                   oninput="filterArchive()"
+                                   style="width:100%; padding:12px 16px 12px 40px; border-radius:10px; border:1px solid #cbd5e1; background:white; font-size:0.95rem; box-sizing:border-box;">
+                        </div>
+                        <button id="archive-add-btn" onclick="showArchiveForm()" style="display:none; padding:10px 20px; background:var(--primary); color:white; border:none; border-radius:10px; font-weight:600; cursor:pointer; white-space:nowrap;">
+                            <i class="fa-solid fa-plus"></i> New Research
+                        </button>
                     </div>
 
-                    <!-- Stats Summary -->
-                    <div id="company-stats" style="display:grid; grid-template-columns:repeat(auto-fit, minmax(140px,1fr)); gap:12px; margin-bottom:20px;"></div>
+                    <!-- Research list -->
+                    <div id="archive-list"></div>
 
-                    <!-- Company Table -->
-                    <div style="overflow-x:auto; border-radius:12px; border:1px solid #e2e8f0;">
-                        <table id="company-table" style="width:100%; border-collapse:collapse; font-size:0.9rem;">
-                            <thead>
-                                <tr style="background:#f1f5f9; text-align:left;">
-                                    <th style="padding:12px 14px; font-weight:600; color:#475569;">#</th>
-                                    <th style="padding:12px 14px; font-weight:600; color:#475569;">Company Name</th>
-                                    <th style="padding:12px 14px; font-weight:600; color:#475569;">Director</th>
-                                    <th style="padding:12px 14px; font-weight:600; color:#475569;">Region</th>
-                                    <th style="padding:12px 14px; font-weight:600; color:#475569;">OKED</th>
-                                    <th style="padding:12px 14px; font-weight:600; color:#475569;">Reg. No / Date</th>
-                                </tr>
-                            </thead>
-                            <tbody id="company-tbody"></tbody>
-                        </table>
+                    <!-- Add/Edit form (hidden by default) -->
+                    <div id="archive-form" style="display:none; padding:24px; background:#f8fafc; border-radius:12px; border:1px solid #e2e8f0; margin-bottom:24px;">
+                        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:16px;">
+                            <h3 id="archive-form-title" style="margin:0; color:#1e293b;">New Research</h3>
+                            <button onclick="hideArchiveForm()" style="background:none; border:none; font-size:1.3rem; cursor:pointer; color:#94a3b8;">&times;</button>
+                        </div>
+                        <input type="hidden" id="archive-edit-id">
+                        <div style="display:grid; gap:12px;">
+                            <input type="text" id="arch-title" placeholder="Title *" style="padding:10px 14px; border-radius:8px; border:1px solid #cbd5e1; font-size:0.95rem;">
+                            <div style="display:grid; grid-template-columns:1fr 1fr 1fr; gap:12px;">
+                                <input type="text" id="arch-topic" placeholder="Topic * (e.g. AI, Crypto)" style="padding:10px 14px; border-radius:8px; border:1px solid #cbd5e1; font-size:0.95rem;">
+                                <select id="arch-doctype" style="padding:10px 14px; border-radius:8px; border:1px solid #cbd5e1; font-size:0.95rem;">
+                                    <option value="article">Article</option>
+                                    <option value="report">Report</option>
+                                    <option value="brief">Brief / Memo</option>
+                                    <option value="presentation">Presentation</option>
+                                    <option value="analysis">Analysis</option>
+                                </select>
+                                <input type="text" id="arch-author" placeholder="Author" style="padding:10px 14px; border-radius:8px; border:1px solid #cbd5e1; font-size:0.95rem;">
+                            </div>
+                            <input type="text" id="arch-source" placeholder="Source URL (optional)" style="padding:10px 14px; border-radius:8px; border:1px solid #cbd5e1; font-size:0.95rem;">
+                            <textarea id="arch-summary" placeholder="Summary (short description)" rows="2" style="padding:10px 14px; border-radius:8px; border:1px solid #cbd5e1; font-size:0.95rem; resize:vertical;"></textarea>
+                            <textarea id="arch-content" placeholder="Full content / notes..." rows="8" style="padding:10px 14px; border-radius:8px; border:1px solid #cbd5e1; font-size:0.95rem; resize:vertical; font-family:inherit;"></textarea>
+                            <button onclick="saveArchiveItem()" style="padding:12px; background:var(--primary); color:white; border:none; border-radius:10px; font-weight:600; cursor:pointer; font-size:1rem;">
+                                <i class="fa-solid fa-floppy-disk"></i> Save
+                            </button>
+                        </div>
                     </div>
-                    <div id="company-count" style="margin-top:12px; color:#64748b; font-size:0.85rem;"></div>
 
-                    <!-- Detail Panel (shown when a row is clicked) -->
-                    <div id="company-detail" style="display:none; margin-top:24px; padding:24px; background:#f8fafc; border-radius:12px; border:1px solid #e2e8f0;">
-                    </div>
+                    <!-- Reader panel for full content -->
+                    <div id="archive-reader" style="display:none; padding:28px; background:white; border-radius:12px; border:1px solid #e2e8f0; margin-top:20px;"></div>
                 </div>
 
                 <div id="load-more-container">
@@ -289,11 +295,5 @@
     </div>
 
     <script src="script.js"></script>
-
-    <script>
-        // Ensure showTab handles the new 'companies' view
-        // If your script.js already has showTab, update it to include 'view-companies'
-        // or ensure it hides all .tab-content and shows the selected ID.
-    </script>
 </body>
 </html>

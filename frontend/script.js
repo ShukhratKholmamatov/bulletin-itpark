@@ -17,9 +17,6 @@ const AUTO_REFRESH_MS = 10 * 60 * 1000;
 ========================= */
 let topicChartInstance = null;
 let sourceChartInstance = null;
-let revenueChartInstance = null; // Market Intel
-let taxChartInstance = null;     // Market Intel
-let localCompaniesDB = null;     // Cache for companies.json
 
 
 /* =========================
@@ -196,8 +193,8 @@ function showTab(tab) {
   const dashContainer = document.getElementById('dashboard-container');
   const nlaContainer = document.getElementById('nla-container');
   const statsContainer = document.getElementById('stats-container');
-  const companyContainer = document.getElementById('view-companies'); // NEW
-  
+  const archiveContainer = document.getElementById('archive-container');
+
   const filters = document.getElementById('filters');
   const tabTitle = document.getElementById('tab-title');
   const loadMore = document.getElementById('load-more-container');
@@ -207,8 +204,8 @@ function showTab(tab) {
   if(dashContainer) dashContainer.style.display = 'none';
   if(nlaContainer) nlaContainer.style.display = 'none';
   if(statsContainer) statsContainer.style.display = 'none';
-  if(companyContainer) companyContainer.style.display = 'none'; // Hide Companies
-  if(filters) filters.style.display = 'flex'; 
+  if(archiveContainer) archiveContainer.style.display = 'none';
+  if(filters) filters.style.display = 'flex';
   if(loadMore) loadMore.style.display = 'none';
 
   // --- LOGIC PER TAB ---
@@ -238,11 +235,11 @@ function showTab(tab) {
     if(statsContainer) statsContainer.style.display = 'block';
     loadStats();
 
-  } else if (tab === 'companies') {
-    if(tabTitle) tabTitle.innerText = 'Market Intelligence';
-    if(companyContainer) companyContainer.style.display = 'block';
+  } else if (tab === 'archive') {
+    if(tabTitle) tabTitle.innerText = 'Research Archive';
+    if(archiveContainer) archiveContainer.style.display = 'block';
     if(filters) filters.style.display = 'none';
-    initCompaniesTab();
+    loadArchive();
 
   } else {
     // 'all' (News Feed)
@@ -269,7 +266,7 @@ function resetNews() {
    📰 LOAD NEWS
 ========================= */
 async function loadNews() {
-  if (currentTab === 'dashboard' || currentTab === 'companies') return;
+  if (currentTab === 'dashboard' || currentTab === 'archive') return;
   if (isLoading) return;
   isLoading = true;
 
@@ -853,224 +850,230 @@ async function loadLawContent(id) {
 }
 
 /* =========================================
-   MARKET INTEL (COMPANY REGISTRY)
+   RESEARCH ARCHIVE
    ========================================= */
 
-// OKED classification mapping (derived from company name keywords)
-const OKED_MAP = [
-    { code: '62.01', name: 'Software Development', keywords: ['SOFT', 'PROGRAM', 'DEVELOP', 'IT ', 'TECH', 'DIGITAL', 'SYSTEM', 'INNOVA', 'CYBER', 'DATA', 'CLOUD', 'WEB', 'APP', 'MOBILE', 'KOMPYUTER', 'RAQAMLI'] },
-    { code: '69.10', name: 'Legal Services', keywords: ['LEGAL', 'LAW', 'YURIDIK', 'HUQUQ', 'ADVOKAT', 'NOTARI', 'ЮРИДИК', 'ПРАВО'] },
-    { code: '70.22', name: 'Business Consulting', keywords: ['CONSULT', 'CONSALT', 'MASLAHAT', 'ADVISORY', 'AUDIT', 'EXPERT'] },
-    { code: '41.20', name: 'Construction', keywords: ['BUILD', 'STROY', 'QURILISH', 'CONSTRUCT'] },
-    { code: '47.91', name: 'Trade & Retail', keywords: ['TRADE', 'SAVDO', 'COMMERCE', 'IMPORT', 'EXPORT', 'MARKET'] },
-    { code: '85.59', name: 'Education & Training', keywords: ['ACADEMY', 'EDUCATION', 'TRAINING', 'TALIM', 'SCHOOL', 'INSTITUT', 'TEACH'] },
-    { code: '62.09', name: 'IT Consulting', keywords: ['AXBOROT', 'INFORMATSION', 'SERVIS', 'SERVICE', 'SOLUTION', 'INTEGR'] },
-    { code: '63.11', name: 'Data Processing', keywords: ['PROCESSING', 'ANALYTIC', 'MINING', 'INTELLECT', 'AI ', 'ROBOT'] },
-    { code: '64.19', name: 'Financial Services', keywords: ['FINANC', 'MOLIYA', 'BANK', 'INVEST', 'KREDIT', 'INSURANCE', 'SUGURTA'] },
-    { code: '73.11', name: 'Advertising & Media', keywords: ['MEDIA', 'REKLAM', 'ADVERT', 'MARKETING', 'DESIGN', 'CREATIVE', 'BRAND', 'PR ', 'STUDIO'] },
-    { code: '86.90', name: 'Healthcare', keywords: ['MEDIC', 'HEALTH', 'TIBBIY', 'PHARMA', 'KLINIK', 'HOSPITAL'] },
-    { code: '01.11', name: 'Agriculture', keywords: ['AGRO', 'FARM', 'QISHLOQ', 'DEHQON'] },
-    { code: '49.41', name: 'Transport & Logistics', keywords: ['TRANSPORT', 'LOGIST', 'CARGO', 'TASHISH', 'DELIVER', 'EXPRESS'] },
-    { code: '68.20', name: 'Real Estate', keywords: ['ESTATE', 'PROPERTY', 'MULK', 'REALT'] },
-    { code: '96.09', name: 'Other Services', keywords: [] }
-];
+let archiveData = [];
+let archiveTopics = [];
+let activeArchiveTopic = '';
 
-function deriveOKED(companyName) {
-    const upper = companyName.toUpperCase();
-    for (const entry of OKED_MAP) {
-        if (entry.keywords.some(kw => upper.includes(kw))) {
-            return { code: entry.code, name: entry.name };
-        }
-    }
-    return { code: '96.09', name: 'Other Services' };
-}
+const DOC_TYPE_ICONS = {
+    article: 'fa-file-lines',
+    report: 'fa-file-chart-column',
+    brief: 'fa-file-contract',
+    presentation: 'fa-file-powerpoint',
+    analysis: 'fa-magnifying-glass-chart'
+};
 
-function cleanCompanyName(raw) {
-    return raw
-        .replace(/\u201C|\u201D|\u201E|”|”/g, '”')
-        .replace(/”([^”]+)”/g, '$1')
-        .replace(/limitd liability company/gi, '')
-        .replace(/limited liability company/gi, '')
-        .replace(/\bMCHJ\b/gi, '')
-        .replace(/\bMChJ\b/gi, '')
-        .replace(/\bLLC\b/gi, '')
-        .replace(/\bOOO\b/gi, '')
-        .replace(/\s+/g, ' ')
-        .trim();
-}
+const DOC_TYPE_COLORS = {
+    article: '#3b82f6',
+    report: '#8b5cf6',
+    brief: '#f59e0b',
+    presentation: '#ef4444',
+    analysis: '#10b981'
+};
 
-function parseRegInfo(metaString) {
-    const dateMatch = (metaString || '').match(/(\d{2}[./-]\d{2}[./-]\d{4})/);
-    const regDate = dateMatch ? dateMatch[0] : '-';
-    let regNo = '-';
-    const noMatch = (metaString || '').match(/[№#]\s*(\d+)/);
-    if (noMatch) regNo = noMatch[1];
-    else { const numMatch = (metaString || '').match(/(\d{5,})/); if (numMatch) regNo = numMatch[1]; }
-    return { regNo, regDate };
-}
+async function loadArchive() {
+    const list = document.getElementById('archive-list');
+    const topicsBar = document.getElementById('archive-topics');
+    const addBtn = document.getElementById('archive-add-btn');
 
-let parsedCompanies = []; // cached parsed list
+    list.innerHTML = '<div style=”text-align:center; padding:40px; color:#94a3b8;”><i class=”fa-solid fa-spinner fa-spin fa-2x”></i></div>';
 
-async function loadAllCompanies() {
-    if (!localCompaniesDB) {
-        const res = await fetch('companies.json');
-        if (!res.ok) throw new Error('Could not load companies.json');
-        localCompaniesDB = await res.json();
-    }
-
-    if (parsedCompanies.length) return parsedCompanies;
-
-    parsedCompanies = localCompaniesDB.map((c, i) => {
-        const name = cleanCompanyName(c.tashkilotnomi);
-        const oked = deriveOKED(c.tashkilotnomi);
-        const { regNo, regDate } = parseRegInfo(c.davlatroyxatidanotgantartibraqamivasanasi);
-        return {
-            idx: i + 1,
-            name,
-            director: c.fio || '-',
-            region: c.Hudud || 'Uzbekistan',
-            address: (c.kontakti || '').trim() || '-',
-            okedCode: oked.code,
-            okedName: oked.name,
-            regNo,
-            regDate,
-            raw: c
-        };
-    });
-
-    return parsedCompanies;
-}
-
-async function initCompaniesTab() {
-    const tbody = document.getElementById('company-tbody');
-    const statsEl = document.getElementById('company-stats');
-    if (!tbody) return;
-
-    tbody.innerHTML = '<tr><td colspan=”6” style=”text-align:center;padding:30px;color:#94a3b8;”>Loading companies...</td></tr>';
+    // Show “New Research” button for admins
+    if (currentUser && currentUser.role === 'admin') addBtn.style.display = 'inline-flex';
+    else addBtn.style.display = 'none';
 
     try {
-        const companies = await loadAllCompanies();
+        // Load topics and items in parallel
+        const [topicsRes, itemsRes] = await Promise.all([
+            fetch('/archive-topics'),
+            fetch(activeArchiveTopic ? `/archive?topic=${encodeURIComponent(activeArchiveTopic)}` : '/archive')
+        ]);
+        archiveTopics = await topicsRes.json();
+        archiveData = await itemsRes.json();
 
-        // Populate region filter
-        const regionSelect = document.getElementById('company-region-filter');
-        const regions = [...new Set(companies.map(c => c.region))].sort();
-        regionSelect.innerHTML = '<option value=””>All Regions</option>' + regions.map(r => `<option value=”${r}”>${r}</option>`).join('');
+        // Render topic chips
+        topicsBar.innerHTML = `<button onclick=”setArchiveTopic('')” style=”padding:6px 14px; border-radius:20px; border:1px solid ${!activeArchiveTopic ? 'var(--primary)' : '#cbd5e1'}; background:${!activeArchiveTopic ? 'var(--primary)' : 'white'}; color:${!activeArchiveTopic ? 'white' : '#475569'}; cursor:pointer; font-size:0.85rem; font-weight:500;”>All (${archiveTopics.reduce((s, t) => s + t.count, 0)})</button>` +
+            archiveTopics.map(t =>
+                `<button onclick=”setArchiveTopic('${t.topic}')” style=”padding:6px 14px; border-radius:20px; border:1px solid ${activeArchiveTopic === t.topic ? 'var(--primary)' : '#cbd5e1'}; background:${activeArchiveTopic === t.topic ? 'var(--primary)' : 'white'}; color:${activeArchiveTopic === t.topic ? 'white' : '#475569'}; cursor:pointer; font-size:0.85rem; font-weight:500;”>${t.topic} (${t.count})</button>`
+            ).join('');
 
-        // Populate OKED filter
-        const okedSelect = document.getElementById('company-oked-filter');
-        const okeds = [...new Set(companies.map(c => c.okedCode + ' - ' + c.okedName))].sort();
-        okedSelect.innerHTML = '<option value=””>All OKED Sectors</option>' + okeds.map(o => `<option value=”${o.split(' - ')[0]}”>${o}</option>`).join('');
-
-        // Stats summary
-        const okedCounts = {};
-        companies.forEach(c => { okedCounts[c.okedName] = (okedCounts[c.okedName] || 0) + 1; });
-        const topOkeds = Object.entries(okedCounts).sort((a, b) => b[1] - a[1]).slice(0, 5);
-        const colors = ['#7dba28','#3b82f6','#f59e0b','#8b5cf6','#ef4444'];
-        statsEl.innerHTML = `
-            <div style=”padding:14px;background:#f0fdf4;border-radius:10px;text-align:center;”>
-                <div style=”font-size:1.6rem;font-weight:700;color:#16a34a;”>${companies.length}</div>
-                <div style=”font-size:0.8rem;color:#64748b;”>Total Companies</div>
-            </div>
-            <div style=”padding:14px;background:#eff6ff;border-radius:10px;text-align:center;”>
-                <div style=”font-size:1.6rem;font-weight:700;color:#2563eb;”>${regions.length}</div>
-                <div style=”font-size:0.8rem;color:#64748b;”>Regions</div>
-            </div>
-        ` + topOkeds.map((o, i) => `
-            <div style=”padding:14px;background:${colors[i]}10;border-radius:10px;text-align:center;”>
-                <div style=”font-size:1.6rem;font-weight:700;color:${colors[i]};”>${o[1]}</div>
-                <div style=”font-size:0.8rem;color:#64748b;”>${o[0]}</div>
-            </div>`).join('');
-
-        renderCompanyTable(companies);
+        renderArchiveList(archiveData);
     } catch (err) {
-        console.error('Company load error:', err);
-        tbody.innerHTML = '<tr><td colspan=”6” style=”text-align:center;padding:30px;color:#ef4444;”>Failed to load company data.</td></tr>';
+        console.error('Archive load error:', err);
+        list.innerHTML = '<div style=”text-align:center; padding:40px; color:#ef4444;”>Failed to load archive.</div>';
     }
 }
 
-function renderCompanyTable(companies) {
-    const tbody = document.getElementById('company-tbody');
-    const countEl = document.getElementById('company-count');
+function setArchiveTopic(topic) {
+    activeArchiveTopic = topic;
+    loadArchive();
+}
 
-    if (!companies.length) {
-        tbody.innerHTML = '<tr><td colspan=”6” style=”text-align:center;padding:30px;color:#94a3b8;”>No companies match your filters.</td></tr>';
-        countEl.textContent = '0 companies found';
+function filterArchive() {
+    const q = (document.getElementById('archive-search').value || '').toLowerCase().trim();
+    if (!q) return renderArchiveList(archiveData);
+    const filtered = archiveData.filter(item =>
+        item.title.toLowerCase().includes(q) ||
+        item.topic.toLowerCase().includes(q) ||
+        (item.summary || '').toLowerCase().includes(q) ||
+        (item.author || '').toLowerCase().includes(q)
+    );
+    renderArchiveList(filtered);
+}
+
+function renderArchiveList(items) {
+    const list = document.getElementById('archive-list');
+    const reader = document.getElementById('archive-reader');
+    reader.style.display = 'none';
+
+    if (!items.length) {
+        list.innerHTML = `
+            <div style=”text-align:center; padding:60px 20px; color:#94a3b8;”>
+                <i class=”fa-solid fa-folder-open fa-3x” style=”margin-bottom:16px; opacity:0.5;”></i>
+                <p style=”font-size:1.1rem; margin:0;”>No research published yet.</p>
+                <p style=”font-size:0.9rem;”>Admins can add articles, reports, and analyses using the “New Research” button.</p>
+            </div>`;
         return;
     }
 
-    tbody.innerHTML = companies.map(c => `
-        <tr onclick=”showCompanyDetail(${c.idx - 1})” style=”cursor:pointer; transition:background 0.15s;” onmouseover=”this.style.background='#f1f5f9'” onmouseout=”this.style.background=''”>
-            <td style=”padding:10px 14px; border-bottom:1px solid #f1f5f9; color:#94a3b8;”>${c.idx}</td>
-            <td style=”padding:10px 14px; border-bottom:1px solid #f1f5f9; font-weight:600; color:#1e293b;”>${c.name}</td>
-            <td style=”padding:10px 14px; border-bottom:1px solid #f1f5f9; color:#475569;”>${c.director}</td>
-            <td style=”padding:10px 14px; border-bottom:1px solid #f1f5f9; color:#475569;”>${c.region}</td>
-            <td style=”padding:10px 14px; border-bottom:1px solid #f1f5f9;”>
-                <span style=”display:inline-block;padding:3px 8px;border-radius:6px;background:#eff6ff;color:#2563eb;font-size:0.8rem;font-weight:600;”>${c.okedCode}</span>
-                <span style=”color:#64748b;font-size:0.8rem;margin-left:4px;”>${c.okedName}</span>
-            </td>
-            <td style=”padding:10px 14px; border-bottom:1px solid #f1f5f9; color:#64748b; font-size:0.85rem;”>${c.regNo} / ${c.regDate}</td>
-        </tr>
-    `).join('');
+    list.innerHTML = items.map(item => {
+        const icon = DOC_TYPE_ICONS[item.doc_type] || 'fa-file';
+        const color = DOC_TYPE_COLORS[item.doc_type] || '#64748b';
+        const date = new Date(item.created_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
+        const isAdmin = currentUser && currentUser.role === 'admin';
 
-    countEl.textContent = `${companies.length} of ${parsedCompanies.length} companies`;
+        return `
+        <div onclick=”openArchiveItem(${item.id})” style=”padding:18px 20px; background:white; border-radius:10px; border:1px solid #e2e8f0; margin-bottom:10px; cursor:pointer; transition:all 0.15s; display:flex; gap:16px; align-items:flex-start;” onmouseover=”this.style.borderColor='var(--primary)';this.style.boxShadow='0 2px 8px rgba(0,0,0,0.06)'” onmouseout=”this.style.borderColor='#e2e8f0';this.style.boxShadow='none'”>
+            <div style=”width:42px; height:42px; border-radius:10px; background:${color}15; display:flex; align-items:center; justify-content:center; flex-shrink:0;”>
+                <i class=”fa-solid ${icon}” style=”color:${color}; font-size:1.1rem;”></i>
+            </div>
+            <div style=”flex:1; min-width:0;”>
+                <div style=”display:flex; align-items:center; gap:8px; flex-wrap:wrap; margin-bottom:4px;”>
+                    <span style=”font-weight:600; color:#1e293b; font-size:1rem;”>${item.title}</span>
+                </div>
+                <div style=”display:flex; gap:8px; align-items:center; flex-wrap:wrap; margin-bottom:6px;”>
+                    <span style=”padding:2px 8px; border-radius:4px; background:${color}15; color:${color}; font-size:0.75rem; font-weight:600; text-transform:uppercase;”>${item.doc_type}</span>
+                    <span style=”padding:2px 8px; border-radius:4px; background:#f1f5f9; color:#475569; font-size:0.75rem; font-weight:500;”>${item.topic}</span>
+                    ${item.author ? `<span style=”color:#94a3b8; font-size:0.8rem;”><i class=”fa-solid fa-user” style=”margin-right:3px;”></i>${item.author}</span>` : ''}
+                    <span style=”color:#cbd5e1; font-size:0.8rem;”><i class=”fa-regular fa-calendar” style=”margin-right:3px;”></i>${date}</span>
+                </div>
+                ${item.summary ? `<p style=”margin:0; color:#64748b; font-size:0.88rem; line-height:1.5; overflow:hidden; text-overflow:ellipsis; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical;”>${item.summary}</p>` : ''}
+            </div>
+            ${isAdmin ? `<button onclick=”event.stopPropagation(); deleteArchiveItem(${item.id})” title=”Delete” style=”background:none; border:none; color:#cbd5e1; cursor:pointer; padding:4px 8px; font-size:1rem;” onmouseover=”this.style.color='#ef4444'” onmouseout=”this.style.color='#cbd5e1'”><i class=”fa-solid fa-trash-can”></i></button>` : ''}
+        </div>`;
+    }).join('');
 }
 
-function filterCompanies() {
-    const query = (document.getElementById('company-search').value || '').toLowerCase().trim();
-    const regionFilter = document.getElementById('company-region-filter').value;
-    const okedFilter = document.getElementById('company-oked-filter').value;
+async function openArchiveItem(id) {
+    const reader = document.getElementById('archive-reader');
+    reader.style.display = 'block';
+    reader.innerHTML = '<div style=”text-align:center; padding:30px;”><i class=”fa-solid fa-spinner fa-spin fa-2x” style=”color:#94a3b8;”></i></div>';
+    reader.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
 
-    let filtered = parsedCompanies;
+    try {
+        const res = await fetch(`/archive/${id}`);
+        const item = await res.json();
+        const color = DOC_TYPE_COLORS[item.doc_type] || '#64748b';
+        const icon = DOC_TYPE_ICONS[item.doc_type] || 'fa-file';
+        const date = new Date(item.created_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' });
+        const isAdmin = currentUser && currentUser.role === 'admin';
 
-    if (query) {
-        filtered = filtered.filter(c =>
-            c.name.toLowerCase().includes(query) ||
-            c.director.toLowerCase().includes(query) ||
-            c.region.toLowerCase().includes(query) ||
-            c.regNo.includes(query)
-        );
-    }
-    if (regionFilter) filtered = filtered.filter(c => c.region === regionFilter);
-    if (okedFilter) filtered = filtered.filter(c => c.okedCode === okedFilter);
-
-    renderCompanyTable(filtered);
-}
-
-function showCompanyDetail(index) {
-    const c = parsedCompanies[index];
-    if (!c) return;
-
-    const detail = document.getElementById('company-detail');
-    detail.style.display = 'block';
-    detail.innerHTML = `
-        <div style=”display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:16px;”>
-            <div>
-                <h2 style=”margin:0 0 8px 0;color:#1e293b;font-size:1.5rem;”>${c.name}</h2>
-                <div style=”display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px;”>
-                    <span style=”padding:4px 10px;border-radius:6px;background:#eff6ff;color:#2563eb;font-size:0.85rem;font-weight:600;”>OKED ${c.okedCode} — ${c.okedName}</span>
-                    <span style=”padding:4px 10px;border-radius:6px;background:#f0fdf4;color:#16a34a;font-size:0.85rem;font-weight:600;”>Active</span>
+        reader.innerHTML = `
+            <div style=”display:flex; justify-content:space-between; align-items:flex-start; flex-wrap:wrap; gap:12px; margin-bottom:20px;”>
+                <div>
+                    <h2 style=”margin:0 0 10px 0; color:#1e293b; font-size:1.5rem; line-height:1.3;”>${item.title}</h2>
+                    <div style=”display:flex; gap:8px; flex-wrap:wrap; align-items:center;”>
+                        <span style=”padding:4px 10px; border-radius:6px; background:${color}15; color:${color}; font-size:0.8rem; font-weight:600; text-transform:uppercase;”>
+                            <i class=”fa-solid ${icon}” style=”margin-right:4px;”></i>${item.doc_type}
+                        </span>
+                        <span style=”padding:4px 10px; border-radius:6px; background:#f1f5f9; color:#475569; font-size:0.8rem; font-weight:500;”>${item.topic}</span>
+                        ${item.author ? `<span style=”color:#64748b; font-size:0.85rem;”><i class=”fa-solid fa-user” style=”margin-right:4px;”></i>${item.author}</span>` : ''}
+                        <span style=”color:#94a3b8; font-size:0.85rem;”><i class=”fa-regular fa-calendar” style=”margin-right:4px;”></i>${date}</span>
+                    </div>
+                </div>
+                <div style=”display:flex; gap:8px;”>
+                    ${isAdmin ? `<button onclick=”editArchiveItem(${item.id})” style=”padding:8px 14px; background:#f1f5f9; border:none; border-radius:8px; cursor:pointer; color:#475569; font-size:0.85rem;”><i class=”fa-solid fa-pen”></i> Edit</button>` : ''}
+                    <button onclick=”document.getElementById('archive-reader').style.display='none'” style=”padding:8px 14px; background:#f1f5f9; border:none; border-radius:8px; cursor:pointer; color:#475569; font-size:0.85rem;”>&times; Close</button>
                 </div>
             </div>
-            <button onclick=”document.getElementById('company-detail').style.display='none'” style=”background:none;border:none;font-size:1.3rem;cursor:pointer;color:#94a3b8;”>&times;</button>
-        </div>
-        <div style=”display:grid;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));gap:16px;margin-top:12px;”>
-            <div style=”padding:14px;background:white;border-radius:10px;border:1px solid #e2e8f0;”>
-                <div style=”font-size:0.8rem;color:#94a3b8;margin-bottom:4px;”>Director / Owner</div>
-                <div style=”font-weight:600;color:#1e293b;”><i class=”fa-solid fa-user-tie” style=”color:#3b82f6;margin-right:6px;”></i>${c.director}</div>
-            </div>
-            <div style=”padding:14px;background:white;border-radius:10px;border:1px solid #e2e8f0;”>
-                <div style=”font-size:0.8rem;color:#94a3b8;margin-bottom:4px;”>Region</div>
-                <div style=”font-weight:600;color:#1e293b;”><i class=”fa-solid fa-map-location-dot” style=”color:#f59e0b;margin-right:6px;”></i>${c.region}</div>
-            </div>
-            <div style=”padding:14px;background:white;border-radius:10px;border:1px solid #e2e8f0;”>
-                <div style=”font-size:0.8rem;color:#94a3b8;margin-bottom:4px;”>Registration</div>
-                <div style=”font-weight:600;color:#1e293b;”><i class=”fa-solid fa-id-card” style=”color:#8b5cf6;margin-right:6px;”></i>No. ${c.regNo} &mdash; ${c.regDate}</div>
-            </div>
-            <div style=”padding:14px;background:white;border-radius:10px;border:1px solid #e2e8f0;”>
-                <div style=”font-size:0.8rem;color:#94a3b8;margin-bottom:4px;”>Address</div>
-                <div style=”font-weight:600;color:#1e293b;”><i class=”fa-solid fa-location-dot” style=”color:#ef4444;margin-right:6px;”></i>${c.address}</div>
-            </div>
-        </div>
-    `;
-    detail.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+            ${item.summary ? `<div style=”padding:14px 18px; background:#f8fafc; border-radius:8px; border-left:3px solid ${color}; margin-bottom:20px; color:#475569; font-size:0.95rem; line-height:1.6;”>${item.summary}</div>` : ''}
+            <div style=”color:#1e293b; font-size:1rem; line-height:1.8; white-space:pre-wrap;”>${item.content || '<span style=”color:#94a3b8;”>No content yet.</span>'}</div>
+            ${item.source_url ? `<div style=”margin-top:24px; padding-top:16px; border-top:1px solid #e2e8f0;”><a href=”${item.source_url}” target=”_blank” style=”color:var(--primary); text-decoration:none; font-size:0.9rem;”><i class=”fa-solid fa-arrow-up-right-from-square” style=”margin-right:4px;”></i>View original source</a></div>` : ''}
+        `;
+    } catch (err) {
+        reader.innerHTML = '<div style=”text-align:center; padding:30px; color:#ef4444;”>Failed to load article.</div>';
+    }
+}
+
+function showArchiveForm(item) {
+    const form = document.getElementById('archive-form');
+    form.style.display = 'block';
+    document.getElementById('archive-form-title').textContent = item ? 'Edit Research' : 'New Research';
+    document.getElementById('archive-edit-id').value = item ? item.id : '';
+    document.getElementById('arch-title').value = item ? item.title : '';
+    document.getElementById('arch-topic').value = item ? item.topic : '';
+    document.getElementById('arch-doctype').value = item ? item.doc_type : 'article';
+    document.getElementById('arch-author').value = item ? (item.author || '') : (currentUser ? currentUser.name : '');
+    document.getElementById('arch-source').value = item ? (item.source_url || '') : '';
+    document.getElementById('arch-summary').value = item ? (item.summary || '') : '';
+    document.getElementById('arch-content').value = item ? (item.content || '') : '';
+    form.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+}
+
+function hideArchiveForm() {
+    document.getElementById('archive-form').style.display = 'none';
+}
+
+async function saveArchiveItem() {
+    const editId = document.getElementById('archive-edit-id').value;
+    const body = {
+        title: document.getElementById('arch-title').value.trim(),
+        topic: document.getElementById('arch-topic').value.trim(),
+        doc_type: document.getElementById('arch-doctype').value,
+        author: document.getElementById('arch-author').value.trim(),
+        source_url: document.getElementById('arch-source').value.trim(),
+        summary: document.getElementById('arch-summary').value.trim(),
+        content: document.getElementById('arch-content').value
+    };
+
+    if (!body.title || !body.topic) return alert('Title and Topic are required.');
+
+    try {
+        const url = editId ? `/archive/${editId}` : '/archive';
+        const method = editId ? 'PUT' : 'POST';
+        const res = await fetch(url, {
+            method,
+            headers: { 'Content-Type': 'application/json' },
+            credentials: 'include',
+            body: JSON.stringify(body)
+        });
+        if (!res.ok) { const err = await res.json(); throw new Error(err.error); }
+        hideArchiveForm();
+        loadArchive();
+    } catch (err) {
+        alert('Save failed: ' + err.message);
+    }
+}
+
+async function editArchiveItem(id) {
+    try {
+        const res = await fetch(`/archive/${id}`);
+        const item = await res.json();
+        showArchiveForm(item);
+    } catch (err) {
+        alert('Could not load item for editing.');
+    }
+}
+
+async function deleteArchiveItem(id) {
+    if (!confirm('Delete this research item?')) return;
+    try {
+        const res = await fetch(`/archive/${id}`, { method: 'DELETE', credentials: 'include' });
+        if (!res.ok) throw new Error();
+        loadArchive();
+    } catch (err) {
+        alert('Delete failed.');
+    }
 }

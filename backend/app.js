@@ -15,7 +15,6 @@ const bcrypt = require('bcryptjs');
 const TelegramBot = require('node-telegram-bot-api');
 const https = require('https'); 
 const cheerio = require('cheerio'); // Scraper
-const axios = require('axios');     // HTTP Client
 const { pipeline } = require('stream');
 const { promisify } = require('util');
 const streamPipeline = promisify(pipeline);
@@ -523,106 +522,69 @@ app.get('/nla/live/vn/search', async (req, res) => { res.status(501).json({ erro
 
 
 /* =========================
-   MARKET INTELLIGENCE & SCRAPERS (UPDATED)
+   RESEARCH ARCHIVE
 ========================= */
 
-// 1. FMP PROXY (Global Public Companies)
-app.get('/api/company-intel', async (req, res) => {
-    const query = req.query.q;
-    const API_KEY = process.env.FMP_API_KEY;
-    if (!API_KEY) return res.status(500).json({ error: 'FMP API key not configured' });
-
-    try {
-        const searchRes = await axios.get(`https://financialmodelingprep.com/api/v3/search?query=${query}&limit=1&apikey=${API_KEY}`);
-        if (!searchRes.data.length) return res.status(404).json({ error: "Not found" });
-
-        const symbol = searchRes.data[0].symbol;
-        const profileRes = await axios.get(`https://financialmodelingprep.com/api/v3/profile/${symbol}?apikey=${API_KEY}`);
-        const incomeRes = await axios.get(`https://financialmodelingprep.com/api/v3/income-statement/${symbol}?limit=5&apikey=${API_KEY}`);
-
-        res.json({ profile: profileRes.data[0], financials: incomeRes.data });
-    } catch (error) {
-        res.status(500).json({ error: "API connection failed" });
-    }
+// List all research (with optional topic filter)
+app.get('/archive', (req, res) => {
+    const { topic } = req.query;
+    let sql = 'SELECT id, title, topic, summary, author, doc_type, source_url, created_at FROM research_archive';
+    const params = [];
+    if (topic) { sql += ' WHERE topic = ?'; params.push(topic); }
+    sql += ' ORDER BY created_at DESC';
+    db.all(sql, params, (err, rows) => {
+        if (err) return res.status(500).json({ error: err.message });
+        res.json(rows);
+    });
 });
 
-/* =========================
-   🕵️ UZBEKISTAN PARSER (Bing Backdoor Strategy)
-   ========================= */
-app.get('/api/uz-company-parser', async (req, res) => {
-    if (!req.query.q) return res.status(400).json({ error: "No query provided" });
-    const query = req.query.q.trim();
-    if (!query) return res.status(400).json({ error: "No query provided" });
+// Get single research with full content
+app.get('/archive/:id', (req, res) => {
+    db.get('SELECT * FROM research_archive WHERE id = ?', [req.params.id], (err, row) => {
+        if (err) return res.status(500).json({ error: err.message });
+        if (!row) return res.status(404).json({ error: 'Not found' });
+        res.json(row);
+    });
+});
 
-    try {
-        const headers = {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-            'Accept': 'text/html'
-        };
+// List all unique topics
+app.get('/archive-topics', (req, res) => {
+    db.all('SELECT topic, COUNT(*) as count FROM research_archive GROUP BY topic ORDER BY count DESC', [], (err, rows) => {
+        if (err) return res.status(500).json({ error: err.message });
+        res.json(rows);
+    });
+});
 
-        // 1. Search BING for the profile page
-        // "site:orginfo.uz Artel"
-        const bingUrl = `https://www.bing.com/search?q=site:orginfo.uz+"${encodeURIComponent(query)}"`;
-        console.log(`🔎 Asking Bing: ${bingUrl}`);
-        
-        const bingRes = await axios.get(bingUrl, { headers });
-        const $ = cheerio.load(bingRes.data);
+// Create new research (admin only)
+app.post('/archive', ensureAdmin, (req, res) => {
+    const { title, topic, summary, content, author, doc_type, source_url } = req.body;
+    if (!title || !topic) return res.status(400).json({ error: 'Title and topic are required' });
 
-        // 2. Find the first result that is a Profile Link
-        let profileUrl = null;
-        
-        // Bing results are usually in 'li.b_algo h2 a'
-        $('li.b_algo h2 a').each((i, el) => {
-            const href = $(el).attr('href');
-            // We only want /organization/ links, no PDF downloads or other junk
-            if (href && href.includes('orginfo.uz/organization/') && !profileUrl) {
-                profileUrl = href;
-            }
-        });
+    const sql = `INSERT INTO research_archive (title, topic, summary, content, author, doc_type, source_url) VALUES (?, ?, ?, ?, ?, ?, ?)`;
+    db.run(sql, [title, topic, summary || '', content || '', author || req.user.name, doc_type || 'article', source_url || ''], function(err) {
+        if (err) return res.status(500).json({ error: err.message });
+        res.json({ success: true, id: this.lastID });
+    });
+});
 
-        if (!profileUrl) {
-            console.log("❌ Bing found no Orginfo profiles.");
-            return res.status(404).json({ error: "Company not found via Bing" });
-        }
+// Update research (admin only)
+app.put('/archive/:id', ensureAdmin, (req, res) => {
+    const { title, topic, summary, content, author, doc_type, source_url } = req.body;
+    const sql = `UPDATE research_archive SET title=?, topic=?, summary=?, content=?, author=?, doc_type=?, source_url=?, updated_at=CURRENT_TIMESTAMP WHERE id=?`;
+    db.run(sql, [title, topic, summary, content, author, doc_type, source_url, req.params.id], function(err) {
+        if (err) return res.status(500).json({ error: err.message });
+        if (this.changes === 0) return res.status(404).json({ error: 'Not found' });
+        res.json({ success: true });
+    });
+});
 
-        console.log(`✅ Direct Hit: ${profileUrl}`);
-
-        // 3. Visit the Profile Page Directly
-        const profileRes = await axios.get(profileUrl, { headers });
-        const $$ = cheerio.load(profileRes.data);
-
-        // 4. Extract Data (Robust Selectors)
-        // Orginfo titles often include " - Orginfo.uz", strip that out
-        let name = $$('h1').text().trim(); 
-        
-        // If H1 is empty (sometimes happens on mobile view), try Title tag
-        if (!name) name = $$('title').text().replace(' - Orginfo.uz', '').trim();
-
-        // Extract using "contains" because classes change, but labels don't
-        let director = $$('span:contains("Руководитель")').parent().next().text().trim();
-        if (!director) director = $$('.row:contains("Руководитель")').find('.col-md-8').text().trim();
-        if (!director) director = "Restricted";
-
-        let address = $$('span:contains("Адрес")').parent().next().text().trim();
-        if (!address) address = $$('.row:contains("Адрес")').find('.col-md-8').text().trim();
-        if (!address) address = "Uzbekistan";
-
-        let status = $$('.badge').first().text().trim();
-        if (!status) status = "Active";
-
-        let inn = $$('span:contains("ИНН")').parent().next().text().trim();
-        if (!inn) inn = "Unknown";
-        
-        // Capital
-        const capitalText = $$('span:contains("Уставной фонд")').parent().next().text().trim();
-        const capital = parseInt(capitalText.replace(/[^0-9]/g, '')) || 50000000;
-
-        res.json({ name, director, address, status, inn, capital });
-
-    } catch (error) {
-        console.error("Scraper Error:", error.message);
-        res.status(404).json({ error: "Parsing failed" });
-    }
+// Delete research (admin only)
+app.delete('/archive/:id', ensureAdmin, (req, res) => {
+    db.run('DELETE FROM research_archive WHERE id = ?', [req.params.id], function(err) {
+        if (err) return res.status(500).json({ error: err.message });
+        if (this.changes === 0) return res.status(404).json({ error: 'Not found' });
+        res.json({ success: true });
+    });
 });
 
 

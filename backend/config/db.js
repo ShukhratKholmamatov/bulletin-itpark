@@ -88,9 +88,23 @@ function initializeTables() {
         // 4. STATISTICS TABLE
         db.run(`CREATE TABLE IF NOT EXISTS statistics (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
-            country_code TEXT, country_name TEXT, entity_name TEXT, 
+            country_code TEXT, country_name TEXT, entity_name TEXT,
             metric_name TEXT, metric_value TEXT, source TEXT, url TEXT
         )`, () => seedStats());
+
+        // 5. RESEARCH ARCHIVE TABLE
+        db.run(`CREATE TABLE IF NOT EXISTS research_archive (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            title TEXT NOT NULL,
+            topic TEXT NOT NULL,
+            summary TEXT,
+            content TEXT,
+            author TEXT,
+            doc_type TEXT DEFAULT 'article',
+            source_url TEXT,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        )`);
     });
 }
 
