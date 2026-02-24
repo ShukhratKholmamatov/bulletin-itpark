@@ -1,4 +1,16 @@
 /* =========================
+   RESTORE SAVED PREFERENCES (runs immediately)
+========================= */
+(function() {
+    const savedTheme = localStorage.getItem('bulletin-theme');
+    if (savedTheme === 'dark') document.documentElement.setAttribute('data-theme', 'dark');
+    const savedFont = localStorage.getItem('bulletin-font-size');
+    if (savedFont && ['small', 'medium', 'large'].includes(savedFont)) {
+        document.documentElement.classList.add('font-' + savedFont);
+    }
+})();
+
+/* =========================
    GLOBAL STATE
 ========================= */
 let currentTab = 'all';
@@ -39,6 +51,10 @@ async function fetchCurrentUser() {
             if(document.getElementById('user-info')) document.getElementById('user-info').style.display = 'flex';
             if(document.getElementById('login-overlay')) document.getElementById('login-overlay').classList.add('hidden');
             document.body.classList.remove('auth-required');
+
+            // Show admin sidebar button if admin
+            const adminTabBtn = document.getElementById('tab-admin');
+            if (adminTabBtn) adminTabBtn.style.display = (user.role === 'admin') ? 'flex' : 'none';
 
             loadNews();
         } else {
@@ -123,6 +139,1331 @@ function logout() { window.location.href = '/auth/logout'; }
 
 
 /* =========================
+   ⚙️ SETTINGS PANEL
+========================= */
+function openSettings() {
+    const overlay = document.getElementById('settings-overlay');
+    if (!overlay) return;
+
+    if (currentUser) {
+        document.getElementById('settings-name').value = currentUser.name || '';
+        document.getElementById('settings-dept').value = currentUser.department || 'General';
+        const preview = document.getElementById('settings-avatar-preview');
+        if (preview) preview.src = currentUser.photo_url || `https://ui-avatars.com/api/?name=${currentUser.name}&background=7dba28&color=fff`;
+    }
+
+    const darkToggle = document.getElementById('settings-dark-toggle');
+    if (darkToggle) darkToggle.checked = document.documentElement.getAttribute('data-theme') === 'dark';
+
+    const currentSize = localStorage.getItem('bulletin-font-size') || 'medium';
+    document.querySelectorAll('.settings-toggle-group button').forEach(b => b.classList.remove('active'));
+    const activeBtn = document.getElementById(`font-btn-${currentSize}`);
+    if (activeBtn) activeBtn.classList.add('active');
+
+    overlay.classList.add('open');
+}
+
+function closeSettings() {
+    const overlay = document.getElementById('settings-overlay');
+    if (overlay) overlay.classList.remove('open');
+}
+
+function closeSettingsOnOverlay(event) {
+    if (event.target === event.currentTarget) closeSettings();
+}
+
+function toggleDarkMode(enabled) {
+    if (enabled) {
+        document.documentElement.setAttribute('data-theme', 'dark');
+        localStorage.setItem('bulletin-theme', 'dark');
+    } else {
+        document.documentElement.removeAttribute('data-theme');
+        localStorage.setItem('bulletin-theme', 'light');
+    }
+}
+
+function setFontSize(size) {
+    document.documentElement.classList.remove('font-small', 'font-medium', 'font-large');
+    document.documentElement.classList.add(`font-${size}`);
+    localStorage.setItem('bulletin-font-size', size);
+
+    document.querySelectorAll('.settings-toggle-group button').forEach(b => b.classList.remove('active'));
+    const btn = document.getElementById(`font-btn-${size}`);
+    if (btn) btn.classList.add('active');
+}
+
+async function saveProfile() {
+    const name = document.getElementById('settings-name').value.trim();
+    const department = document.getElementById('settings-dept').value;
+    const statusEl = document.getElementById('settings-profile-status');
+
+    if (!name) {
+        if (statusEl) { statusEl.style.color = 'var(--accent-red)'; statusEl.textContent = 'Name is required'; }
+        return;
+    }
+
+    try {
+        const res = await fetch('/auth/profile', {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+            credentials: 'include',
+            body: JSON.stringify({ name, department })
+        });
+
+        const text = await res.text();
+        let data;
+        try { data = JSON.parse(text); } catch(e) {
+            if (statusEl) { statusEl.style.color = 'var(--accent-red)'; statusEl.textContent = 'Server error — please restart the backend'; }
+            console.error('Profile save response:', text);
+            return;
+        }
+
+        if (res.ok) {
+            currentUser.name = data.name;
+            currentUser.department = data.department;
+            if (document.getElementById('user-name')) document.getElementById('user-name').innerText = data.name;
+            if (document.getElementById('user-dept')) document.getElementById('user-dept').innerText = data.department;
+            // Update avatar if it's from ui-avatars (name-based)
+            if (currentUser.photo_url && currentUser.photo_url.includes('ui-avatars.com')) {
+                const newAvatarUrl = `https://ui-avatars.com/api/?name=${data.name}&background=7dba28&color=fff`;
+                currentUser.photo_url = newAvatarUrl;
+                const headerAvatar = document.getElementById('user-avatar');
+                if (headerAvatar) headerAvatar.src = newAvatarUrl;
+                const previewAvatar = document.getElementById('settings-avatar-preview');
+                if (previewAvatar) previewAvatar.src = newAvatarUrl;
+            }
+            if (statusEl) { statusEl.style.color = 'var(--primary)'; statusEl.textContent = 'Profile saved!'; }
+            setTimeout(() => { if (statusEl) statusEl.textContent = ''; }, 3000);
+        } else {
+            if (statusEl) { statusEl.style.color = 'var(--accent-red)'; statusEl.textContent = data.error || 'Save failed'; }
+        }
+    } catch (e) {
+        console.error('Profile save error:', e);
+        if (statusEl) { statusEl.style.color = 'var(--accent-red)'; statusEl.textContent = 'Network error — is the server running?'; }
+    }
+}
+
+async function handleAvatarUpload(input) {
+    if (!input.files || !input.files[0]) return;
+    const file = input.files[0];
+    if (file.size > 2 * 1024 * 1024) { alert('Image must be under 2MB'); return; }
+
+    const formData = new FormData();
+    formData.append('avatar', file);
+
+    try {
+        const res = await fetch('/auth/avatar', {
+            method: 'POST',
+            credentials: 'include',
+            headers: { 'Accept': 'application/json' },
+            body: formData
+        });
+
+        const text = await res.text();
+        let data;
+        try { data = JSON.parse(text); } catch(e) {
+            alert('Server returned unexpected response. Please restart the backend server.');
+            console.error('Avatar upload response:', text);
+            return;
+        }
+
+        if (res.ok) {
+            const newUrl = data.photo_url + '?t=' + Date.now();
+            currentUser.photo_url = data.photo_url;
+            const headerAvatar = document.getElementById('user-avatar');
+            if (headerAvatar) headerAvatar.src = newUrl;
+            const preview = document.getElementById('settings-avatar-preview');
+            if (preview) preview.src = newUrl;
+        } else {
+            alert(data.error || 'Upload failed');
+        }
+    } catch (e) {
+        console.error('Avatar upload error:', e);
+        alert('Network error — is the server running?');
+    }
+    input.value = '';
+}
+
+
+/* =========================
+   🛡️ ADMIN PANEL
+========================= */
+function escapeHtml(str) {
+    const div = document.createElement('div');
+    div.textContent = str || '';
+    return div.innerHTML;
+}
+
+let adminCurrentSection = 'overview';
+let adminUserSearchTimer = null;
+
+function showAdminSection(section) {
+    adminCurrentSection = section;
+    document.querySelectorAll('.admin-subnav-btn').forEach(b => b.classList.remove('active'));
+    const btn = document.getElementById(`admin-sub-${section}`);
+    if (btn) btn.classList.add('active');
+
+    document.querySelectorAll('.admin-section').forEach(s => s.style.display = 'none');
+    const target = document.getElementById(`admin-${section}`);
+    if (target) target.style.display = 'block';
+
+    if (section === 'overview') loadAdminOverview();
+    else if (section === 'users') loadAdminUsers();
+    else if (section === 'content') loadAdminContent();
+    else if (section === 'activity') loadAdminActivity();
+}
+
+async function loadAdminOverview() {
+    const statsBar = document.getElementById('admin-stats-bar');
+    const deptBars = document.getElementById('admin-dept-bars');
+    if (!statsBar) return;
+
+    statsBar.innerHTML = '<div style="text-align:center; padding:20px; color:var(--text-muted);"><i class="fa-solid fa-spinner fa-spin"></i> Loading...</div>';
+    if (deptBars) deptBars.innerHTML = '';
+
+    try {
+        const res = await fetch('/admin/dashboard', { credentials: 'include' });
+        if (!res.ok) throw new Error('Failed to load');
+        const data = await res.json();
+
+        statsBar.innerHTML = `
+            <div class="admin-stat-card">
+                <div class="admin-stat-icon" style="background:var(--primary-light); color:var(--primary);"><i class="fa-solid fa-users"></i></div>
+                <div><div class="admin-stat-value">${data.totalUsers}</div><div class="admin-stat-label">Total Users</div></div>
+            </div>
+            <div class="admin-stat-card">
+                <div class="admin-stat-icon" style="background:#e0f2fe; color:#0284c7;"><i class="fa-solid fa-bookmark"></i></div>
+                <div><div class="admin-stat-value">${data.totalSaved}</div><div class="admin-stat-label">Saved Articles</div></div>
+            </div>
+            <div class="admin-stat-card">
+                <div class="admin-stat-icon" style="background:#ede9fe; color:#7c3aed;"><i class="fa-solid fa-book"></i></div>
+                <div><div class="admin-stat-value">${data.totalResearch}</div><div class="admin-stat-label">Research Items</div></div>
+            </div>
+            <div class="admin-stat-card">
+                <div class="admin-stat-icon" style="background:#fef3c7; color:#d97706;"><i class="fa-solid fa-user-plus"></i></div>
+                <div><div class="admin-stat-value">${data.recentUsers}</div><div class="admin-stat-label">New This Week</div></div>
+            </div>
+        `;
+
+        if (deptBars && data.usersByDept.length) {
+            const maxCount = Math.max(...data.usersByDept.map(d => d.count), 1);
+            deptBars.innerHTML = data.usersByDept.map(d => `
+                <div class="admin-dept-bar-row">
+                    <div class="admin-dept-bar-label">${escapeHtml(d.department || 'Unknown')}</div>
+                    <div class="admin-dept-bar-track">
+                        <div class="admin-dept-bar-fill" style="width:${(d.count / maxCount * 100)}%">${d.count}</div>
+                    </div>
+                </div>
+            `).join('');
+        }
+    } catch (err) {
+        statsBar.innerHTML = '<div style="text-align:center; padding:20px; color:var(--accent-red);">Failed to load dashboard data.</div>';
+    }
+}
+
+function debounceAdminUserSearch() {
+    clearTimeout(adminUserSearchTimer);
+    adminUserSearchTimer = setTimeout(loadAdminUsers, 300);
+}
+
+async function loadAdminUsers() {
+    const tbody = document.getElementById('admin-users-tbody');
+    const countEl = document.getElementById('admin-users-count');
+    if (!tbody) return;
+
+    const search = document.getElementById('admin-user-search')?.value || '';
+    const department = document.getElementById('admin-dept-filter')?.value || '';
+    const role = document.getElementById('admin-role-filter')?.value || '';
+    const params = new URLSearchParams({ search, department, role });
+
+    tbody.innerHTML = '<tr><td colspan="6" style="text-align:center; padding:30px; color:var(--text-muted);"><i class="fa-solid fa-spinner fa-spin"></i> Loading...</td></tr>';
+
+    try {
+        const res = await fetch(`/admin/users?${params}`, { credentials: 'include', headers: { 'Accept': 'application/json' } });
+        if (!res.ok) {
+            const text = await res.text();
+            console.error('Admin users error:', res.status, text);
+            throw new Error(text || `HTTP ${res.status}`);
+        }
+        const data = await res.json();
+
+        if (countEl) countEl.textContent = `${data.total} user${data.total !== 1 ? 's' : ''} found`;
+
+        if (!data.users.length) {
+            tbody.innerHTML = '<tr><td colspan="6" style="text-align:center; padding:30px; color:var(--text-muted);">No users match your filters.</td></tr>';
+            return;
+        }
+
+        tbody.innerHTML = data.users.map(u => {
+            const avatar = u.photo_url || `https://ui-avatars.com/api/?name=${encodeURIComponent(u.name || 'U')}&background=7dba28&color=fff&size=34`;
+            const date = u.created_at ? new Date(u.created_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }) : '—';
+            const isSelf = currentUser && currentUser.id === u.id;
+
+            return `<tr>
+                <td>
+                    <div class="admin-user-cell">
+                        <img src="${escapeHtml(avatar)}" class="admin-user-avatar" alt="" onerror="this.src='https://ui-avatars.com/api/?name=U&background=7dba28&color=fff&size=34'">
+                        <span>${escapeHtml(u.name)}${isSelf ? ' <small style="color:var(--primary);">(you)</small>' : ''}</span>
+                    </div>
+                </td>
+                <td>${escapeHtml(u.email)}</td>
+                <td>
+                    <select onchange="changeUserDept('${escapeHtml(u.id)}', this.value)" class="admin-dept-inline">
+                        ${['Product Export','Startup Ecosystem','Western Markets','Eastern Markets','GovTech','Venture Capital','Analytics','BPO Monitoring','Residents Relations','Residents Registration','Residents Monitoring','Softlanding','Legal Ecosystem','AI Infrastructure','AI Research','Inclusive Projects','Regional Development','Freelancers & Youth','Infrastructure','Infrastructure Dev','PPP Investors','IT Outsourcing','Global Marketing','Multimedia','Public Relations','Marketing','Event Management'].map(d =>
+                            `<option value="${d}" ${u.department === d ? 'selected' : ''}>${d}</option>`
+                        ).join('')}
+                    </select>
+                </td>
+                <td><span class="admin-role-badge ${u.role === 'admin' ? 'admin' : 'viewer'}">${escapeHtml(u.role)}</span></td>
+                <td style="white-space:nowrap;">${date}</td>
+                <td>
+                    ${isSelf ? '<span style="color:var(--text-muted); font-size:0.8rem;">—</span>' :
+                    `<div class="admin-actions-group">
+                        <button class="admin-action-btn" onclick="toggleUserRole('${escapeHtml(u.id)}', '${escapeHtml(u.role)}')">
+                            ${u.role === 'admin' ? '<i class="fa-solid fa-arrow-down"></i> Demote' : '<i class="fa-solid fa-arrow-up"></i> Promote'}
+                        </button>
+                        <button class="admin-action-btn delete" onclick="deleteUser('${escapeHtml(u.id)}', '${escapeHtml(u.name || u.email)}')">
+                            <i class="fa-solid fa-trash"></i>
+                        </button>
+                    </div>`}
+                </td>
+            </tr>`;
+        }).join('');
+    } catch (err) {
+        tbody.innerHTML = '<tr><td colspan="6" style="text-align:center; padding:30px; color:var(--accent-red);">Failed to load users.</td></tr>';
+    }
+}
+
+async function toggleUserRole(userId, currentRole) {
+    const newRole = currentRole === 'admin' ? 'viewer' : 'admin';
+    const action = newRole === 'admin' ? 'promote to Admin' : 'demote to Viewer';
+    if (!confirm(`Are you sure you want to ${action} this user?`)) return;
+
+    try {
+        const res = await fetch(`/admin/users/${userId}/role`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+            credentials: 'include',
+            body: JSON.stringify({ role: newRole })
+        });
+        const text = await res.text();
+        let data;
+        try { data = JSON.parse(text); } catch { data = { error: text }; }
+        if (!res.ok) throw new Error(data.error || 'Failed');
+        loadAdminUsers();
+    } catch (err) {
+        alert('Error: ' + err.message);
+    }
+}
+
+async function deleteUser(userId, userName) {
+    if (!confirm(`Are you sure you want to permanently delete "${userName}"? This cannot be undone.`)) return;
+
+    try {
+        const res = await fetch(`/admin/users/${userId}`, {
+            method: 'DELETE',
+            headers: { 'Accept': 'application/json' },
+            credentials: 'include'
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || 'Failed to delete user');
+        loadAdminUsers();
+        loadAdminOverview();
+    } catch (err) {
+        alert('Error: ' + err.message);
+    }
+}
+
+async function changeUserDept(userId, newDept) {
+    try {
+        const res = await fetch(`/admin/users/${userId}/department`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+            credentials: 'include',
+            body: JSON.stringify({ department: newDept })
+        });
+        const text = await res.text();
+        let data;
+        try { data = JSON.parse(text); } catch { data = { error: text }; }
+        if (!res.ok) {
+            alert('Error: ' + (data.error || 'Failed'));
+            loadAdminUsers();
+        }
+    } catch (err) {
+        alert('Error: ' + err.message);
+        loadAdminUsers();
+    }
+}
+
+async function loadAdminContent() {
+    const statsEl = document.getElementById('admin-content-stats');
+    const typesEl = document.getElementById('admin-research-types');
+    const articlesEl = document.getElementById('admin-popular-articles');
+    if (!statsEl) return;
+
+    statsEl.innerHTML = '<div style="text-align:center; padding:20px; color:var(--text-muted);"><i class="fa-solid fa-spinner fa-spin"></i> Loading...</div>';
+
+    try {
+        const res = await fetch('/admin/content', { credentials: 'include' });
+        if (!res.ok) throw new Error('Failed');
+        const data = await res.json();
+
+        const totalResearch = data.researchByType.reduce((s, r) => s + r.count, 0);
+        const totalTopics = data.researchByTopic.length;
+
+        statsEl.innerHTML = `
+            <div class="admin-stat-card">
+                <div class="admin-stat-icon" style="background:var(--primary-light); color:var(--primary);"><i class="fa-solid fa-file-lines"></i></div>
+                <div><div class="admin-stat-value">${totalResearch}</div><div class="admin-stat-label">Research Documents</div></div>
+            </div>
+            <div class="admin-stat-card">
+                <div class="admin-stat-icon" style="background:#e0f2fe; color:#0284c7;"><i class="fa-solid fa-tags"></i></div>
+                <div><div class="admin-stat-value">${totalTopics}</div><div class="admin-stat-label">Research Topics</div></div>
+            </div>
+            <div class="admin-stat-card">
+                <div class="admin-stat-icon" style="background:#fce7f3; color:#db2777;"><i class="fa-solid fa-fire"></i></div>
+                <div><div class="admin-stat-value">${data.popularArticles.length}</div><div class="admin-stat-label">Trending Articles</div></div>
+            </div>
+        `;
+
+        if (typesEl) {
+            const maxType = Math.max(...data.researchByType.map(r => r.count), 1);
+            typesEl.innerHTML = data.researchByType.length ? data.researchByType.map(r => `
+                <div class="admin-dept-bar-row">
+                    <div class="admin-dept-bar-label" style="text-transform:capitalize;">${escapeHtml(r.doc_type)}</div>
+                    <div class="admin-dept-bar-track">
+                        <div class="admin-dept-bar-fill" style="width:${(r.count / maxType * 100)}%; background:#7c3aed;">${r.count}</div>
+                    </div>
+                </div>
+            `).join('') : '<p style="color:var(--text-muted); text-align:center;">No research data yet.</p>';
+        }
+
+        if (articlesEl) {
+            articlesEl.innerHTML = data.popularArticles.length ? data.popularArticles.map((a, i) => `
+                <div class="admin-popular-item">
+                    <div class="admin-popular-rank">${i + 1}</div>
+                    <div class="admin-popular-info">
+                        <div class="admin-popular-title">${escapeHtml(a.title)}</div>
+                        <div class="admin-popular-meta">${escapeHtml(a.source || 'Unknown source')}</div>
+                    </div>
+                    <div class="admin-popular-count">${a.save_count} saves</div>
+                    <button class="admin-action-btn delete" onclick="deleteArticle('${escapeHtml(a.news_id)}', '${escapeHtml(a.title)}')" title="Delete from all users">
+                        <i class="fa-solid fa-trash"></i>
+                    </button>
+                </div>
+            `).join('') : '<p style="color:var(--text-muted); text-align:center;">No saved articles yet.</p>';
+        }
+    } catch (err) {
+        statsEl.innerHTML = '<div style="text-align:center; padding:20px; color:var(--accent-red);">Failed to load content data.</div>';
+    }
+    loadAdminArchive();
+}
+
+async function deleteArticle(newsId, title) {
+    if (!confirm(`Delete "${title}" from all users' saved articles? This cannot be undone.`)) return;
+
+    try {
+        const res = await fetch(`/admin/articles/${encodeURIComponent(newsId)}`, {
+            method: 'DELETE',
+            headers: { 'Accept': 'application/json' },
+            credentials: 'include'
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || 'Failed to delete article');
+        loadAdminContent();
+    } catch (err) {
+        alert('Error: ' + err.message);
+    }
+}
+
+
+let _archiveSearchTimer;
+function debounceAdminArchiveSearch() {
+    clearTimeout(_archiveSearchTimer);
+    _archiveSearchTimer = setTimeout(loadAdminArchive, 300);
+}
+
+async function loadAdminArchive() {
+    const tbody = document.getElementById('admin-archive-tbody');
+    if (!tbody) return;
+    const search = (document.getElementById('admin-archive-search')?.value || '').trim();
+
+    tbody.innerHTML = '<tr><td colspan="6" style="text-align:center; padding:20px; color:var(--text-muted);"><i class="fa-solid fa-spinner fa-spin"></i></td></tr>';
+
+    try {
+        const res = await fetch(`/admin/archive?search=${encodeURIComponent(search)}`, {
+            credentials: 'include',
+            headers: { 'Accept': 'application/json' }
+        });
+        if (!res.ok) throw new Error('Failed');
+        const data = await res.json();
+
+        if (!data.archives.length) {
+            tbody.innerHTML = '<tr><td colspan="6" style="text-align:center; padding:20px; color:var(--text-muted);">No archive documents found.</td></tr>';
+            return;
+        }
+
+        tbody.innerHTML = data.archives.map(a => {
+            const date = a.created_at ? new Date(a.created_at).toLocaleDateString() : '—';
+            return `<tr>
+                <td style="max-width:250px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${escapeHtml(a.title)}</td>
+                <td><span style="text-transform:capitalize;">${escapeHtml(a.doc_type || '—')}</span></td>
+                <td>${escapeHtml(a.topic || '—')}</td>
+                <td>${escapeHtml(a.author || '—')}</td>
+                <td style="white-space:nowrap;">${date}</td>
+                <td>
+                    <button class="admin-action-btn delete" onclick="deleteArchiveDoc(${a.id}, '${escapeHtml(a.title).replace(/'/g, "\\'")}')">
+                        <i class="fa-solid fa-trash"></i>
+                    </button>
+                </td>
+            </tr>`;
+        }).join('');
+    } catch (err) {
+        tbody.innerHTML = '<tr><td colspan="6" style="text-align:center; padding:20px; color:var(--accent-red);">Failed to load archive.</td></tr>';
+    }
+}
+
+async function deleteArchiveDoc(id, title) {
+    if (!confirm(`Delete "${title}" from the archive? This cannot be undone.`)) return;
+
+    try {
+        const res = await fetch(`/archive/${id}`, {
+            method: 'DELETE',
+            headers: { 'Accept': 'application/json' },
+            credentials: 'include'
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || 'Failed to delete');
+        loadAdminArchive();
+        loadAdminContent();
+    } catch (err) {
+        alert('Error: ' + err.message);
+    }
+}
+
+/* =========================
+   ADMIN ACTIVITY KPI
+========================= */
+let activityData = [];
+let activityRange = 'today';
+let activitySortCol = 'total_actions';
+let activitySortAsc = false;
+
+function setActivityRange(range, btn) {
+    activityRange = range;
+    document.querySelectorAll('.activity-range-btn').forEach(b => b.classList.remove('active'));
+    if (btn) btn.classList.add('active');
+    const customDates = document.getElementById('activity-custom-dates');
+    if (customDates) customDates.style.display = range === 'custom' ? 'flex' : 'none';
+    if (range !== 'custom') loadAdminActivity();
+}
+
+function getActivityParams() {
+    const dept = document.getElementById('activity-dept-filter')?.value || 'all';
+    let params = `range=${activityRange}&dept=${encodeURIComponent(dept)}`;
+    if (activityRange === 'custom') {
+        const from = document.getElementById('activity-from')?.value || '';
+        const to = document.getElementById('activity-to')?.value || '';
+        params += `&from=${from}&to=${to}`;
+    }
+    return params;
+}
+
+async function loadAdminActivity() {
+    const tbody = document.getElementById('activity-tbody');
+    const statsBar = document.getElementById('activity-stats-bar');
+    if (!tbody) return;
+    tbody.innerHTML = '<tr><td colspan="8" style="text-align:center; padding:30px; color:#94a3b8;"><i class="fa-solid fa-spinner fa-spin"></i> Loading activity data...</td></tr>';
+
+    try {
+        const res = await fetch(`/admin/activity?${getActivityParams()}`, { credentials: 'include' });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || 'Failed to load');
+
+        activityData = data.users;
+
+        // Render summary stats
+        if (statsBar) {
+            const s = data.summary;
+            statsBar.innerHTML = `
+                <div class="admin-stat-card"><div class="admin-stat-num">${s.total_actions}</div><div class="admin-stat-label">Total Actions</div></div>
+                <div class="admin-stat-card"><div class="admin-stat-num">${escapeHtml(s.most_active_user)}</div><div class="admin-stat-label">Most Active</div></div>
+                <div class="admin-stat-card"><div class="admin-stat-num">${s.avg_actions}</div><div class="admin-stat-label">Avg per User</div></div>
+                <div class="admin-stat-card"><div class="admin-stat-num">${s.active_users_count}</div><div class="admin-stat-label">Active Users</div></div>
+            `;
+        }
+
+        renderActivityTable();
+    } catch (err) {
+        tbody.innerHTML = `<tr><td colspan="8" style="text-align:center; padding:30px; color:#ef4444;">Error: ${escapeHtml(err.message)}</td></tr>`;
+    }
+}
+
+function renderActivityTable() {
+    const tbody = document.getElementById('activity-tbody');
+    if (!tbody) return;
+
+    const sorted = [...activityData].sort((a, b) => {
+        let va = a[activitySortCol], vb = b[activitySortCol];
+        if (typeof va === 'string') { va = va.toLowerCase(); vb = (vb || '').toLowerCase(); }
+        if (va < vb) return activitySortAsc ? -1 : 1;
+        if (va > vb) return activitySortAsc ? 1 : -1;
+        return 0;
+    });
+
+    if (!sorted.length) {
+        tbody.innerHTML = '<tr><td colspan="8" style="text-align:center; padding:30px; color:#94a3b8;">No users found</td></tr>';
+        return;
+    }
+
+    tbody.innerHTML = sorted.map(u => {
+        const totalClass = u.total_actions === 0 ? 'activity-zero' : u.total_actions <= 5 ? 'activity-low' : u.total_actions >= 16 ? 'activity-high' : 'activity-med';
+        const avatar = u.photo_url ? `<img src="${escapeHtml(u.photo_url)}" class="admin-user-avatar" alt="">` : `<div class="admin-user-avatar" style="background:var(--primary);color:#fff;display:flex;align-items:center;justify-content:center;font-weight:600;font-size:0.75rem;">${escapeHtml((u.name || '?')[0])}</div>`;
+        return `<tr>
+            <td><div class="admin-user-cell">${avatar}<span>${escapeHtml(u.name || 'Unknown')}</span></div></td>
+            <td>${escapeHtml(u.department || '—')}</td>
+            <td class="activity-num">${u.calls}</td>
+            <td class="activity-num">${u.items_added}</td>
+            <td class="activity-num">${u.items_completed}</td>
+            <td class="activity-num">${u.notes}</td>
+            <td class="activity-num">${u.articles_saved}</td>
+            <td class="activity-total ${totalClass}">${u.total_actions}</td>
+        </tr>`;
+    }).join('');
+}
+
+function sortActivityTable(col) {
+    if (activitySortCol === col) {
+        activitySortAsc = !activitySortAsc;
+    } else {
+        activitySortCol = col;
+        activitySortAsc = col === 'name' || col === 'department';
+    }
+    renderActivityTable();
+}
+
+function exportActivityCSV() {
+    const params = getActivityParams();
+    window.open(`/admin/activity/export?${params}`, '_blank');
+}
+
+/* =========================
+   WORKSPACE (Department Tools)
+========================= */
+let workspaceConfig = null;
+
+const WIDGET_RENDERERS = {
+    news_feed: renderNewsFeedWidget,
+    tech_trends: renderNewsFeedWidget,
+    media_mentions: renderNewsFeedWidget,
+    tracked_companies: renderTrackedItemsWidget,
+    deal_pipeline: renderTrackedItemsWidget,
+    startup_tracker: renderTrackedItemsWidget,
+    project_tracker: renderTrackedItemsWidget,
+    event_planner: renderTrackedItemsWidget,
+    registration_pipeline: renderTrackedItemsWidget,
+    export_metrics: renderMetricsWidget,
+    investment_metrics: renderMetricsWidget,
+    resident_kpis: renderMetricsWidget,
+    community_metrics: renderMetricsWidget,
+    country_comparison: renderCountryComparisonWidget,
+    regulatory_tracker: renderRegulatoryWidget,
+    ai_brief: renderAiBriefWidget,
+    call_script: renderSpravochnikWidget,
+    spravochnik: renderSpravochnikWidget,
+    office_directory: renderOfficeDirectoryWidget,
+    call_log: renderCallLogWidget,
+    lead_pipeline: renderTrackedItemsWidget
+};
+
+async function loadWorkspace() {
+    const header = document.getElementById('workspace-header');
+    const metricsEl = document.getElementById('workspace-metrics');
+    const grid = document.getElementById('workspace-widgets');
+    if (!header) return;
+
+    header.innerHTML = '';
+    metricsEl.innerHTML = '';
+    grid.innerHTML = '<div class="widget-loading"><i class="fa-solid fa-spinner fa-spin fa-2x" style="color:var(--primary);"></i><p style="margin-top:12px;">Loading workspace...</p></div>';
+
+    try {
+        const res = await fetch('/workspace/config', { credentials: 'include' });
+        if (!res.ok) throw new Error('Failed to load config');
+        workspaceConfig = await res.json();
+
+        renderWorkspaceHeader(workspaceConfig);
+        await loadWorkspaceMetrics();
+        renderWorkspaceWidgets(workspaceConfig.widgets);
+    } catch (err) {
+        grid.innerHTML = '<div class="widget-error">Failed to load workspace. Please try again.</div>';
+    }
+}
+
+function renderWorkspaceHeader(config) {
+    const header = document.getElementById('workspace-header');
+    header.innerHTML = `
+        <div class="workspace-dept-badge" style="--dept-color: ${escapeHtml(config.group.color)}">
+            <i class="${escapeHtml(config.group.icon)}"></i>
+            <div>
+                <h3>${escapeHtml(config.department)}</h3>
+                <span>${escapeHtml(config.group.name)}</span>
+            </div>
+        </div>
+        <div class="workspace-actions">
+            <button onclick="refreshWorkspace()" class="workspace-action-btn">
+                <i class="fa-solid fa-arrows-rotate"></i> Refresh
+            </button>
+        </div>
+    `;
+}
+
+async function loadWorkspaceMetrics() {
+    const el = document.getElementById('workspace-metrics');
+    try {
+        const res = await fetch('/workspace/metrics', { credentials: 'include' });
+        const m = await res.json();
+        el.innerHTML = `
+            <div class="workspace-metric-card">
+                <div class="workspace-metric-value">${m.activeItems || 0}</div>
+                <div class="workspace-metric-label">Active Items</div>
+            </div>
+            <div class="workspace-metric-card">
+                <div class="workspace-metric-value">${m.completedItems || 0}</div>
+                <div class="workspace-metric-label">Completed</div>
+            </div>
+            <div class="workspace-metric-card">
+                <div class="workspace-metric-value">${m.totalItems || 0}</div>
+                <div class="workspace-metric-label">Total Tracked</div>
+            </div>
+            <div class="workspace-metric-card">
+                <div class="workspace-metric-value">${m.totalNotes || 0}</div>
+                <div class="workspace-metric-label">Notes</div>
+            </div>
+        `;
+    } catch { el.innerHTML = ''; }
+}
+
+function renderWorkspaceWidgets(widgetIds) {
+    const grid = document.getElementById('workspace-widgets');
+    grid.innerHTML = '';
+
+    widgetIds.forEach(wId => {
+        const wDef = workspaceConfig.widgetDefinitions[wId];
+        if (!wDef) return;
+
+        const sizeClass = wDef.size === 'full' ? 'workspace-widget-full' : wDef.size === 'third' ? 'workspace-widget-third' : '';
+        const el = document.createElement('div');
+        el.className = `workspace-widget ${sizeClass}`;
+        el.id = `widget-${wId}`;
+        el.innerHTML = `
+            <div class="widget-header">
+                <h4><i class="${escapeHtml(wDef.icon)}"></i> ${escapeHtml(wDef.title)}</h4>
+                <button onclick="refreshWidget('${wId}')" title="Refresh"><i class="fa-solid fa-arrows-rotate"></i></button>
+            </div>
+            <div class="widget-body" id="widget-body-${wId}">
+                <div class="widget-loading"><i class="fa-solid fa-spinner fa-spin"></i></div>
+            </div>
+        `;
+        grid.appendChild(el);
+
+        const renderer = WIDGET_RENDERERS[wId];
+        if (renderer) renderer(wId, wDef);
+    });
+}
+
+function refreshWidget(wId) {
+    const wDef = workspaceConfig?.widgetDefinitions[wId];
+    const renderer = WIDGET_RENDERERS[wId];
+    if (wDef && renderer) {
+        const body = document.getElementById(`widget-body-${wId}`);
+        if (body) body.innerHTML = '<div class="widget-loading"><i class="fa-solid fa-spinner fa-spin"></i></div>';
+        renderer(wId, wDef);
+    }
+}
+
+function refreshWorkspace() {
+    loadWorkspace();
+}
+
+// ── News Feed Widget ──
+async function renderNewsFeedWidget(wId, wDef) {
+    const body = document.getElementById(`widget-body-${wId}`);
+    if (!body) return;
+    try {
+        const res = await fetch('/workspace/news?limit=8', { credentials: 'include' });
+        const articles = await res.json();
+        if (!articles.length) {
+            body.innerHTML = '<div class="widget-empty"><i class="fa-solid fa-newspaper" style="font-size:1.5rem;"></i><p>No articles found</p></div>';
+            return;
+        }
+        body.innerHTML = articles.map(a => {
+            const date = a.published_at ? new Date(a.published_at).toLocaleDateString() : '';
+            return `<div class="ws-news-item">
+                <div class="ws-news-info">
+                    <div class="ws-news-title"><a href="${escapeHtml(a.url)}" target="_blank">${escapeHtml(a.title)}</a></div>
+                    <div class="ws-news-meta">${escapeHtml(a.source)} ${date ? '&middot; ' + date : ''}</div>
+                </div>
+            </div>`;
+        }).join('');
+    } catch { body.innerHTML = '<div class="widget-error">Failed to load news</div>'; }
+}
+
+// ── Tracked Items Widget ──
+async function renderTrackedItemsWidget(wId, wDef) {
+    const body = document.getElementById(`widget-body-${wId}`);
+    if (!body) return;
+    const itemType = wDef.itemType || wId;
+
+    try {
+        const res = await fetch(`/workspace/items?type=${encodeURIComponent(itemType)}`, { credentials: 'include' });
+        const items = await res.json();
+
+        if (!items.length) {
+            body.innerHTML = `
+                <div class="widget-empty">
+                    <i class="${escapeHtml(wDef.icon)}" style="font-size:1.5rem;"></i>
+                    <p>No ${escapeHtml(wDef.title.toLowerCase())} yet</p>
+                </div>
+                <button onclick="showAddItemModal('${escapeHtml(itemType)}')" class="widget-add-btn">
+                    <i class="fa-solid fa-plus"></i> Add New
+                </button>`;
+            return;
+        }
+
+        body.innerHTML = `
+            <div class="tracked-items-list">
+                ${items.map(item => `
+                    <div class="tracked-item">
+                        <div class="tracked-item-status status-${escapeHtml(item.status)}"></div>
+                        <div class="tracked-item-info">
+                            <strong>${escapeHtml(item.title)}</strong>
+                            <small>${escapeHtml(item.description || '')}</small>
+                        </div>
+                        <div class="tracked-item-actions">
+                            <button onclick="editTrackedItem(${item.id})" title="Edit"><i class="fa-solid fa-pen"></i></button>
+                            <button class="delete-btn" onclick="deleteTrackedItem(${item.id}, '${escapeHtml(item.title).replace(/'/g, "\\'")}')" title="Delete"><i class="fa-solid fa-trash"></i></button>
+                        </div>
+                    </div>
+                `).join('')}
+            </div>
+            <button onclick="showAddItemModal('${escapeHtml(itemType)}')" class="widget-add-btn">
+                <i class="fa-solid fa-plus"></i> Add New
+            </button>
+        `;
+    } catch { body.innerHTML = '<div class="widget-error">Failed to load items</div>'; }
+}
+
+// ── Metrics Widget ──
+async function renderMetricsWidget(wId, wDef) {
+    const body = document.getElementById(`widget-body-${wId}`);
+    if (!body) return;
+    try {
+        const res = await fetch('/workspace/metrics', { credentials: 'include' });
+        const m = await res.json();
+        body.innerHTML = `
+            <div style="display:flex; gap:16px; flex-wrap:wrap; justify-content:center;">
+                <div style="text-align:center; flex:1; min-width:80px;">
+                    <div style="font-size:1.4rem; font-weight:700; color:var(--primary);">${m.activeItems || 0}</div>
+                    <div style="font-size:0.78rem; color:var(--text-muted);">Active</div>
+                </div>
+                <div style="text-align:center; flex:1; min-width:80px;">
+                    <div style="font-size:1.4rem; font-weight:700; color:#3b82f6;">${m.completedItems || 0}</div>
+                    <div style="font-size:0.78rem; color:var(--text-muted);">Completed</div>
+                </div>
+                <div style="text-align:center; flex:1; min-width:80px;">
+                    <div style="font-size:1.4rem; font-weight:700; color:#f59e0b;">${m.totalNotes || 0}</div>
+                    <div style="font-size:0.78rem; color:var(--text-muted);">Notes</div>
+                </div>
+            </div>
+        `;
+    } catch { body.innerHTML = '<div class="widget-error">Failed to load metrics</div>'; }
+}
+
+// ── Country Comparison Widget ──
+async function renderCountryComparisonWidget(wId, wDef) {
+    const body = document.getElementById(`widget-body-${wId}`);
+    if (!body) return;
+    try {
+        const countries = ['uz', 'kz', 'sg', 'ee'];
+        const results = await Promise.all(countries.map(c =>
+            fetch(`/stats?country=${c}`, { credentials: 'include' }).then(r => r.json()).catch(() => [])
+        ));
+        const countryNames = { uz: 'Uzbekistan', kz: 'Kazakhstan', sg: 'Singapore', ee: 'Estonia' };
+        let html = '';
+        countries.forEach((c, i) => {
+            const stats = results[i];
+            if (!stats || !stats.length) return;
+            const residents = stats.find(s => s.metric_name === 'Residents');
+            html += `<div class="ws-country-row">
+                <span class="ws-country-name">${countryNames[c]}</span>
+                <span class="ws-country-value">${residents ? escapeHtml(residents.metric_value) : '—'}</span>
+            </div>`;
+        });
+        body.innerHTML = html || '<div class="widget-empty"><p>No statistics data available</p></div>';
+    } catch { body.innerHTML = '<div class="widget-error">Failed to load stats</div>'; }
+}
+
+// ── Regulatory Widget ──
+async function renderRegulatoryWidget(wId, wDef) {
+    const body = document.getElementById(`widget-body-${wId}`);
+    if (!body) return;
+    try {
+        const res = await fetch('/nla/list', { credentials: 'include' });
+        const items = await res.json();
+        if (!items || !items.length) {
+            body.innerHTML = '<div class="widget-empty"><p>No legislation data</p></div>';
+            return;
+        }
+        body.innerHTML = items.slice(0, 6).map(item => `
+            <div class="ws-news-item">
+                <div class="ws-news-info">
+                    <div class="ws-news-title">${escapeHtml(item.title)}</div>
+                    <div class="ws-news-meta">${escapeHtml(item.country_name || '')} &middot; ${escapeHtml(item.legal_topic || '')} &middot; ${escapeHtml(item.enactment_date || '')}</div>
+                </div>
+            </div>
+        `).join('');
+    } catch { body.innerHTML = '<div class="widget-error">Failed to load legislation</div>'; }
+}
+
+// ── AI Brief Widget ──
+async function renderAiBriefWidget(wId, wDef) {
+    const body = document.getElementById(`widget-body-${wId}`);
+    if (!body) return;
+    body.innerHTML = '<div class="widget-loading"><i class="fa-solid fa-robot fa-spin" style="color:var(--primary);"></i> Generating AI brief...</div>';
+    try {
+        const res = await fetch('/workspace/ai-brief', { credentials: 'include' });
+        const data = await res.json();
+
+        if (data.unavailable) {
+            let fallbackHtml = `<div class="ai-unavailable"><i class="fa-solid fa-robot" style="font-size:1.5rem; margin-bottom:8px; display:block;"></i>${escapeHtml(data.message)}</div>`;
+            if (data.fallbackArticles && data.fallbackArticles.length) {
+                fallbackHtml += '<div class="ai-fallback-news"><div class="ai-fallback-label"><i class="fa-solid fa-newspaper"></i> Latest Headlines for Your Department</div>';
+                data.fallbackArticles.forEach(a => {
+                    fallbackHtml += `<div class="ai-fallback-item"><span class="ai-fallback-title">${escapeHtml(a.title)}</span></div>`;
+                });
+                fallbackHtml += '</div>';
+            }
+            body.innerHTML = fallbackHtml;
+            return;
+        }
+
+        let html = '';
+        if (data.summary) html += `<div class="ai-brief-summary">${escapeHtml(data.summary)}</div>`;
+        if (data.takeaways && data.takeaways.length) {
+            html += '<div class="ai-brief-takeaways">';
+            data.takeaways.forEach(t => {
+                html += `<div class="ai-brief-takeaway"><i class="fa-solid fa-lightbulb"></i> <span>${escapeHtml(t)}</span></div>`;
+            });
+            html += '</div>';
+        }
+        if (data.action) {
+            html += `<div class="ai-brief-action"><strong><i class="fa-solid fa-bolt"></i> Recommended Action</strong>${escapeHtml(data.action)}</div>`;
+        }
+        body.innerHTML = html || '<div class="ai-unavailable">No AI summary available.</div>';
+    } catch { body.innerHTML = '<div class="widget-error">Failed to generate AI brief</div>'; }
+}
+
+// ── Spravochnik Widget ──
+async function renderSpravochnikWidget(wId, wDef) {
+    const body = document.getElementById(`widget-body-${wId}`);
+    if (!body) return;
+    const category = wDef.category || '';
+    const url = category ? `/workspace/spravochnik?category=${encodeURIComponent(category)}` : '/workspace/spravochnik';
+    try {
+        const res = await fetch(url, { credentials: 'include' });
+        const entries = await res.json();
+        if (!entries.length) {
+            body.innerHTML = `<div class="widget-empty"><i class="${escapeHtml(wDef.icon)}" style="font-size:1.5rem;"></i><p>No entries yet</p></div>
+                <button onclick="showAddSpravochnikModal('${escapeHtml(category)}')" class="widget-add-btn"><i class="fa-solid fa-plus"></i> Add Entry</button>`;
+            return;
+        }
+        // Group by category
+        const grouped = {};
+        entries.forEach(e => { (grouped[e.category] = grouped[e.category] || []).push(e); });
+
+        let html = '<div class="spravochnik-list">';
+        for (const [cat, items] of Object.entries(grouped)) {
+            html += `<div class="spravochnik-category"><span class="spravochnik-cat-label">${escapeHtml(cat)}</span></div>`;
+            items.forEach(item => {
+                html += `<div class="spravochnik-item" onclick="toggleSpravochnikItem(this)">
+                    <div class="spravochnik-item-header">
+                        <i class="fa-solid fa-chevron-right spravochnik-chevron"></i>
+                        <strong>${escapeHtml(item.title)}</strong>
+                        <button class="spravochnik-delete-btn" onclick="event.stopPropagation(); deleteSpravochnikEntry(${item.id})" title="Delete"><i class="fa-solid fa-trash"></i></button>
+                    </div>
+                    <div class="spravochnik-item-content" style="display:none;">
+                        <pre class="spravochnik-text">${escapeHtml(item.content)}</pre>
+                    </div>
+                </div>`;
+            });
+        }
+        html += '</div>';
+        html += `<button onclick="showAddSpravochnikModal('${escapeHtml(category)}')" class="widget-add-btn"><i class="fa-solid fa-plus"></i> Add Entry</button>`;
+        body.innerHTML = html;
+    } catch { body.innerHTML = '<div class="widget-error">Failed to load spravochnik</div>'; }
+}
+
+function toggleSpravochnikItem(el) {
+    const content = el.querySelector('.spravochnik-item-content');
+    const chevron = el.querySelector('.spravochnik-chevron');
+    if (!content) return;
+    const open = content.style.display !== 'none';
+    content.style.display = open ? 'none' : 'block';
+    if (chevron) chevron.style.transform = open ? '' : 'rotate(90deg)';
+}
+
+function showAddSpravochnikModal(defaultCategory) {
+    const modal = document.getElementById('workspace-modal');
+    const form = document.getElementById('workspace-item-form');
+    document.getElementById('workspace-modal-title').innerText = 'Add Spravochnik Entry';
+    // Repurpose the form for spravochnik
+    form.onsubmit = (e) => saveSpravochnikEntry(e);
+    document.getElementById('ws-item-id').value = '';
+    document.getElementById('ws-item-type').value = 'spravochnik';
+    document.getElementById('ws-item-title').value = '';
+    document.getElementById('ws-item-desc').value = '';
+    document.getElementById('ws-item-status').parentElement.querySelector('label').textContent = 'Category';
+    const statusSel = document.getElementById('ws-item-status');
+    statusSel.innerHTML = `<option value="Call Script">Call Script</option><option value="FAQ">FAQ</option><option value="Procedures">Procedures</option><option value="Other">Other</option>`;
+    if (defaultCategory) statusSel.value = defaultCategory;
+    document.getElementById('ws-meta-fields').innerHTML = '';
+    // Change desc label
+    document.getElementById('ws-item-desc').setAttribute('rows', '12');
+    document.getElementById('ws-item-desc').parentElement.querySelector('label').textContent = 'Content';
+    document.getElementById('ws-item-desc').setAttribute('placeholder', 'Enter script, FAQ answer, or procedure...');
+    modal.style.display = 'flex';
+}
+
+async function saveSpravochnikEntry(e) {
+    e.preventDefault();
+    const title = document.getElementById('ws-item-title').value.trim();
+    const content = document.getElementById('ws-item-desc').value.trim();
+    const category = document.getElementById('ws-item-status').value;
+    if (!title || !content) return alert('Title and content required');
+    try {
+        const res = await fetch('/workspace/spravochnik', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            credentials: 'include',
+            body: JSON.stringify({ category, title, content })
+        });
+        if (!res.ok) { const d = await res.json(); throw new Error(d.error || 'Failed'); }
+        closeWorkspaceModal();
+        // Reset form handlers
+        document.getElementById('workspace-item-form').onsubmit = (ev) => saveTrackedItem(ev);
+        // Refresh spravochnik widgets
+        if (workspaceConfig) {
+            workspaceConfig.widgets.forEach(wId => {
+                const wDef = workspaceConfig.widgetDefinitions[wId];
+                if (wDef && wDef.dataSource === 'spravochnik') renderSpravochnikWidget(wId, wDef);
+            });
+        }
+    } catch (err) { alert('Error: ' + err.message); }
+}
+
+async function deleteSpravochnikEntry(id) {
+    if (!confirm('Delete this spravochnik entry?')) return;
+    try {
+        const res = await fetch(`/workspace/spravochnik/${id}`, { method: 'DELETE', credentials: 'include' });
+        if (!res.ok) throw new Error('Failed');
+        if (workspaceConfig) {
+            workspaceConfig.widgets.forEach(wId => {
+                const wDef = workspaceConfig.widgetDefinitions[wId];
+                if (wDef && wDef.dataSource === 'spravochnik') renderSpravochnikWidget(wId, wDef);
+            });
+        }
+    } catch (err) { alert('Error: ' + err.message); }
+}
+
+// ── Office Directory Widget ──
+async function renderOfficeDirectoryWidget(wId, wDef) {
+    const body = document.getElementById(`widget-body-${wId}`);
+    if (!body) return;
+    try {
+        const res = await fetch('/workspace/offices', { credentials: 'include' });
+        const offices = await res.json();
+        if (!offices.length) {
+            body.innerHTML = '<div class="widget-empty"><p>No offices listed</p></div>';
+            return;
+        }
+        // Group by provider
+        const grouped = {};
+        offices.forEach(o => { (grouped[o.provider] = grouped[o.provider] || []).push(o); });
+        const providerColors = { 'IT Park': '#7dba28', 'CSpace': '#3b82f6', 'Shakespeare': '#8b5cf6', 'Ground Zero': '#ef4444' };
+
+        let html = '<div class="office-filter-row"><button class="office-filter-btn active" onclick="filterOffices(this, \'all\')">All</button>';
+        Object.keys(grouped).forEach(p => {
+            html += `<button class="office-filter-btn" onclick="filterOffices(this, '${escapeHtml(p)}')">${escapeHtml(p)}</button>`;
+        });
+        html += '</div><div class="office-list" id="office-list-inner">';
+
+        offices.forEach(o => {
+            const color = providerColors[o.provider] || '#64748b';
+            const statusClass = o.status === 'available' ? 'status-active' : o.status === 'full' ? 'status-archived' : 'status-completed';
+            html += `<div class="office-card" data-provider="${escapeHtml(o.provider)}">
+                <div class="office-card-header">
+                    <span class="office-provider-badge" style="background:${color}20; color:${color};">${escapeHtml(o.provider)}</span>
+                    <span class="tracked-item-status ${statusClass}" title="${escapeHtml(o.status)}"></span>
+                </div>
+                <h4 class="office-name">${escapeHtml(o.name)}</h4>
+                <div class="office-details">
+                    <div><i class="fa-solid fa-map-pin"></i> ${escapeHtml(o.address || o.city)}</div>
+                    <div><i class="fa-solid fa-users"></i> ${escapeHtml(o.capacity || '—')}</div>
+                    <div><i class="fa-solid fa-tag"></i> ${escapeHtml(o.price_range || '—')}</div>
+                    <div><i class="fa-solid fa-wifi"></i> ${escapeHtml(o.amenities || '—')}</div>
+                </div>
+                <div class="office-contacts">
+                    ${o.contact_phone ? `<a href="tel:${escapeHtml(o.contact_phone)}"><i class="fa-solid fa-phone"></i> ${escapeHtml(o.contact_phone)}</a>` : ''}
+                    ${o.contact_email ? `<a href="mailto:${escapeHtml(o.contact_email)}"><i class="fa-solid fa-envelope"></i> ${escapeHtml(o.contact_email)}</a>` : ''}
+                    ${o.website ? `<a href="${escapeHtml(o.website)}" target="_blank"><i class="fa-solid fa-globe"></i> Website</a>` : ''}
+                </div>
+                ${o.notes ? `<div class="office-notes"><i class="fa-solid fa-circle-info"></i> ${escapeHtml(o.notes)}</div>` : ''}
+            </div>`;
+        });
+        html += '</div>';
+        body.innerHTML = html;
+    } catch { body.innerHTML = '<div class="widget-error">Failed to load offices</div>'; }
+}
+
+function filterOffices(btn, provider) {
+    btn.parentElement.querySelectorAll('.office-filter-btn').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    document.querySelectorAll('.office-card').forEach(card => {
+        card.style.display = (provider === 'all' || card.dataset.provider === provider) ? '' : 'none';
+    });
+}
+
+// ── Call Log Widget ──
+async function renderCallLogWidget(wId, wDef) {
+    const body = document.getElementById(`widget-body-${wId}`);
+    if (!body) return;
+    try {
+        const [callsRes, statsRes] = await Promise.all([
+            fetch('/workspace/calls', { credentials: 'include' }),
+            fetch('/workspace/calls/stats', { credentials: 'include' })
+        ]);
+        const calls = await callsRes.json();
+        const stats = await statsRes.json();
+
+        let html = `<div class="call-stats-row">
+            <div class="call-stat"><span class="call-stat-num">${stats.todayCalls || 0}</span><span class="call-stat-label">Today</span></div>
+            <div class="call-stat"><span class="call-stat-num">${stats.totalCalls || 0}</span><span class="call-stat-label">Total</span></div>
+            <div class="call-stat"><span class="call-stat-num">${stats.pendingFollowUps || 0}</span><span class="call-stat-label">Follow-ups</span></div>
+            <div class="call-stat"><span class="call-stat-num">${stats.converted || 0}</span><span class="call-stat-label">Converted</span></div>
+        </div>`;
+
+        html += `<button onclick="showLogCallModal()" class="widget-add-btn" style="margin-bottom:12px;"><i class="fa-solid fa-plus"></i> Log New Call</button>`;
+
+        if (calls.length) {
+            html += '<div class="call-log-list">';
+            calls.slice(0, 20).forEach(c => {
+                const resultColors = { answered: '#22c55e', no_answer: '#f59e0b', callback: '#3b82f6', converted: '#7dba28', rejected: '#ef4444' };
+                const color = resultColors[c.call_result] || '#64748b';
+                const interestIcons = { high: 'fa-fire', medium: 'fa-minus', low: 'fa-arrow-down' };
+                const date = c.created_at ? new Date(c.created_at).toLocaleDateString() : '';
+                html += `<div class="call-log-item">
+                    <div class="call-log-result" style="background:${color}20; color:${color};" title="${escapeHtml(c.call_result)}">${escapeHtml(c.call_result)}</div>
+                    <div class="call-log-info">
+                        <strong>${escapeHtml(c.lead_name)}${c.company_name ? ' — ' + escapeHtml(c.company_name) : ''}</strong>
+                        <small>
+                            ${c.phone ? '<i class="fa-solid fa-phone"></i> ' + escapeHtml(c.phone) + ' ' : ''}
+                            ${c.interest_level ? '<i class="fa-solid ' + (interestIcons[c.interest_level] || 'fa-minus') + '"></i> ' + escapeHtml(c.interest_level) + ' ' : ''}
+                            ${c.follow_up_date ? '<i class="fa-solid fa-calendar"></i> Follow-up: ' + escapeHtml(c.follow_up_date) + ' ' : ''}
+                            &middot; ${date}
+                        </small>
+                        ${c.notes ? `<small class="call-log-notes">${escapeHtml(c.notes)}</small>` : ''}
+                    </div>
+                    <button class="delete-btn" onclick="deleteCallLog(${c.id})" title="Delete" style="background:none; border:none; color:var(--text-muted); cursor:pointer; padding:4px;"><i class="fa-solid fa-trash"></i></button>
+                </div>`;
+            });
+            html += '</div>';
+        } else {
+            html += '<div style="text-align:center; padding:10px; color:var(--text-muted);">No calls logged yet. Start by logging your first call!</div>';
+        }
+        body.innerHTML = html;
+    } catch { body.innerHTML = '<div class="widget-error">Failed to load call log</div>'; }
+}
+
+function showLogCallModal() {
+    const modal = document.getElementById('workspace-modal');
+    const form = document.getElementById('workspace-item-form');
+    document.getElementById('workspace-modal-title').innerText = 'Log Call';
+    form.onsubmit = (e) => saveCallLog(e);
+    document.getElementById('ws-item-id').value = '';
+    document.getElementById('ws-item-type').value = 'call';
+
+    // Repurpose fields
+    document.getElementById('ws-item-title').value = '';
+    document.getElementById('ws-item-title').setAttribute('placeholder', 'Lead name...');
+    document.getElementById('ws-item-title').parentElement.querySelector('label').textContent = 'Lead Name *';
+
+    document.getElementById('ws-item-desc').value = '';
+    document.getElementById('ws-item-desc').setAttribute('rows', '3');
+    document.getElementById('ws-item-desc').setAttribute('placeholder', 'Call notes...');
+    document.getElementById('ws-item-desc').parentElement.querySelector('label').textContent = 'Notes';
+
+    document.getElementById('ws-item-status').parentElement.querySelector('label').textContent = 'Call Result *';
+    const statusSel = document.getElementById('ws-item-status');
+    statusSel.innerHTML = `<option value="answered">Answered</option><option value="no_answer">No Answer</option><option value="callback">Callback Requested</option><option value="converted">Converted</option><option value="rejected">Rejected</option>`;
+
+    // Extra fields
+    document.getElementById('ws-meta-fields').innerHTML = `
+        <div class="ws-form-group"><label>Company Name</label><input type="text" id="ws-call-company" placeholder="Company name..."></div>
+        <div class="ws-form-group"><label>Phone</label><input type="text" id="ws-call-phone" placeholder="+998 ..."></div>
+        <div class="ws-form-group"><label>Email</label><input type="email" id="ws-call-email" placeholder="email@company.com"></div>
+        <div class="ws-form-group"><label>Interest Level</label><select id="ws-call-interest"><option value="high">High</option><option value="medium" selected>Medium</option><option value="low">Low</option></select></div>
+        <div class="ws-form-group"><label>Preferred Office</label><select id="ws-call-office"><option value="">Not discussed</option><option value="IT Park HQ">IT Park HQ — Tashkent</option><option value="IT Park Samarkand">IT Park — Samarkand</option><option value="CSpace">CSpace</option><option value="Shakespeare">Shakespeare</option><option value="Ground Zero">Ground Zero</option></select></div>
+        <div class="ws-form-group"><label>Follow-up Date</label><input type="date" id="ws-call-followup"></div>
+    `;
+    modal.style.display = 'flex';
+}
+
+async function saveCallLog(e) {
+    e.preventDefault();
+    const lead_name = document.getElementById('ws-item-title').value.trim();
+    const call_result = document.getElementById('ws-item-status').value;
+    const notes = document.getElementById('ws-item-desc').value.trim();
+    const company_name = document.getElementById('ws-call-company')?.value.trim() || '';
+    const phone = document.getElementById('ws-call-phone')?.value.trim() || '';
+    const email = document.getElementById('ws-call-email')?.value.trim() || '';
+    const interest_level = document.getElementById('ws-call-interest')?.value || 'medium';
+    const preferred_office = document.getElementById('ws-call-office')?.value || '';
+    const follow_up_date = document.getElementById('ws-call-followup')?.value || '';
+
+    if (!lead_name || !call_result) return alert('Lead name and call result are required');
+
+    try {
+        const res = await fetch('/workspace/calls', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            credentials: 'include',
+            body: JSON.stringify({ lead_name, company_name, phone, email, call_result, interest_level, preferred_office, notes, follow_up_date })
+        });
+        if (!res.ok) { const d = await res.json(); throw new Error(d.error || 'Failed'); }
+        closeWorkspaceModal();
+        document.getElementById('workspace-item-form').onsubmit = (ev) => saveTrackedItem(ev);
+        // Refresh call log widget
+        if (workspaceConfig) {
+            workspaceConfig.widgets.forEach(wId => {
+                const wDef = workspaceConfig.widgetDefinitions[wId];
+                if (wDef && wDef.dataSource === 'calls') renderCallLogWidget(wId, wDef);
+            });
+        }
+        loadWorkspaceMetrics();
+    } catch (err) { alert('Error: ' + err.message); }
+}
+
+async function deleteCallLog(id) {
+    if (!confirm('Delete this call log entry?')) return;
+    try {
+        const res = await fetch(`/workspace/calls/${id}`, { method: 'DELETE', credentials: 'include' });
+        if (!res.ok) throw new Error('Failed');
+        if (workspaceConfig) {
+            workspaceConfig.widgets.forEach(wId => {
+                const wDef = workspaceConfig.widgetDefinitions[wId];
+                if (wDef && wDef.dataSource === 'calls') renderCallLogWidget(wId, wDef);
+            });
+        }
+    } catch (err) { alert('Error: ' + err.message); }
+}
+
+// ── Tracked Item CRUD ──
+let _editingItemId = null;
+let _currentItemType = '';
+
+function showAddItemModal(itemType) {
+    _editingItemId = null;
+    _currentItemType = itemType;
+    document.getElementById('workspace-modal-title').innerText = `Add ${itemType.charAt(0).toUpperCase() + itemType.slice(1)}`;
+    document.getElementById('ws-item-id').value = '';
+    document.getElementById('ws-item-type').value = itemType;
+    document.getElementById('ws-item-title').value = '';
+    document.getElementById('ws-item-desc').value = '';
+    document.getElementById('ws-item-status').value = 'active';
+    document.getElementById('ws-meta-fields').innerHTML = '';
+    document.getElementById('workspace-modal').style.display = 'flex';
+}
+
+async function editTrackedItem(id) {
+    try {
+        const res = await fetch(`/workspace/items`, { credentials: 'include' });
+        const items = await res.json();
+        const item = items.find(i => i.id === id);
+        if (!item) return alert('Item not found');
+
+        _editingItemId = id;
+        _currentItemType = item.item_type;
+        document.getElementById('workspace-modal-title').innerText = `Edit ${item.item_type.charAt(0).toUpperCase() + item.item_type.slice(1)}`;
+        document.getElementById('ws-item-id').value = id;
+        document.getElementById('ws-item-type').value = item.item_type;
+        document.getElementById('ws-item-title').value = item.title;
+        document.getElementById('ws-item-desc').value = item.description || '';
+        document.getElementById('ws-item-status').value = item.status;
+        document.getElementById('ws-meta-fields').innerHTML = '';
+        document.getElementById('workspace-modal').style.display = 'flex';
+    } catch (err) { alert('Error loading item'); }
+}
+
+function closeWorkspaceModal() {
+    document.getElementById('workspace-modal').style.display = 'none';
+}
+
+async function saveTrackedItem(e) {
+    e.preventDefault();
+    const id = document.getElementById('ws-item-id').value;
+    const itemType = document.getElementById('ws-item-type').value;
+    const title = document.getElementById('ws-item-title').value.trim();
+    const description = document.getElementById('ws-item-desc').value.trim();
+    const status = document.getElementById('ws-item-status').value;
+
+    if (!title) return alert('Title is required');
+
+    const payload = { title, description, status };
+    if (!id) payload.item_type = itemType;
+
+    try {
+        const url = id ? `/workspace/items/${id}` : '/workspace/items';
+        const method = id ? 'PUT' : 'POST';
+        const res = await fetch(url, {
+            method,
+            headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+            credentials: 'include',
+            body: JSON.stringify(payload)
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || 'Failed');
+        closeWorkspaceModal();
+        loadWorkspaceMetrics();
+        // Re-render all tracked item widgets
+        if (workspaceConfig) {
+            workspaceConfig.widgets.forEach(wId => {
+                const wDef = workspaceConfig.widgetDefinitions[wId];
+                if (wDef && wDef.dataSource === 'items') renderTrackedItemsWidget(wId, wDef);
+            });
+        }
+    } catch (err) { alert('Error: ' + err.message); }
+}
+
+async function deleteTrackedItem(id, title) {
+    if (!confirm(`Delete "${title}"? This cannot be undone.`)) return;
+    try {
+        const res = await fetch(`/workspace/items/${id}`, {
+            method: 'DELETE',
+            headers: { 'Accept': 'application/json' },
+            credentials: 'include'
+        });
+        if (!res.ok) { const d = await res.json(); throw new Error(d.error || 'Failed'); }
+        loadWorkspaceMetrics();
+        if (workspaceConfig) {
+            workspaceConfig.widgets.forEach(wId => {
+                const wDef = workspaceConfig.widgetDefinitions[wId];
+                if (wDef && wDef.dataSource === 'items') renderTrackedItemsWidget(wId, wDef);
+            });
+        }
+    } catch (err) { alert('Error: ' + err.message); }
+}
+
+/* =========================
    📊 DASHBOARD CHARTS
 ========================= */
 function renderDashboard(newsData) {
@@ -194,6 +1535,8 @@ function showTab(tab) {
   const nlaContainer = document.getElementById('nla-container');
   const statsContainer = document.getElementById('stats-container');
   const archiveContainer = document.getElementById('archive-container');
+  const adminContainer = document.getElementById('admin-container');
+  const workspaceContainer = document.getElementById('workspace-container');
 
   const filters = document.getElementById('filters');
   const tabTitle = document.getElementById('tab-title');
@@ -205,6 +1548,8 @@ function showTab(tab) {
   if(nlaContainer) nlaContainer.style.display = 'none';
   if(statsContainer) statsContainer.style.display = 'none';
   if(archiveContainer) archiveContainer.style.display = 'none';
+  if(adminContainer) adminContainer.style.display = 'none';
+  if(workspaceContainer) workspaceContainer.style.display = 'none';
   if(filters) filters.style.display = 'flex';
   if(loadMore) loadMore.style.display = 'none';
 
@@ -240,6 +1585,19 @@ function showTab(tab) {
     if(archiveContainer) archiveContainer.style.display = 'block';
     if(filters) filters.style.display = 'none';
     loadArchive();
+
+  } else if (tab === 'workspace') {
+    if(tabTitle) tabTitle.innerText = 'My Workspace';
+    if(workspaceContainer) workspaceContainer.style.display = 'block';
+    if(filters) filters.style.display = 'none';
+    loadWorkspace();
+
+  } else if (tab === 'admin') {
+    if (!currentUser || currentUser.role !== 'admin') { showTab('all'); return; }
+    if(tabTitle) tabTitle.innerText = 'Admin Panel';
+    if(adminContainer) adminContainer.style.display = 'block';
+    if(filters) filters.style.display = 'none';
+    loadAdminOverview();
 
   } else {
     // 'all' (News Feed)
@@ -856,10 +2214,11 @@ async function loadLawContent(id) {
 let archiveData = [];
 let archiveTopics = [];
 let activeArchiveTopic = '';
+let archiveViewMode = 'list';
 
 const DOC_TYPE_ICONS = {
     article: 'fa-file-lines',
-    report: 'fa-file-chart-column',
+    report: 'fa-chart-bar',
     brief: 'fa-file-contract',
     presentation: 'fa-file-powerpoint',
     analysis: 'fa-magnifying-glass-chart'
@@ -873,19 +2232,36 @@ const DOC_TYPE_COLORS = {
     analysis: '#10b981'
 };
 
+const DOC_TYPE_LABELS = {
+    article: 'Articles',
+    report: 'Reports',
+    brief: 'Briefs',
+    presentation: 'Presentations',
+    analysis: 'Analyses'
+};
+
 async function loadArchive() {
     const list = document.getElementById('archive-list');
     const topicsBar = document.getElementById('archive-topics');
+    const statsBar = document.getElementById('archive-stats-bar');
     const addBtn = document.getElementById('archive-add-btn');
 
-    list.innerHTML = '<div style=”text-align:center; padding:40px; color:#94a3b8;”><i class=”fa-solid fa-spinner fa-spin fa-2x”></i></div>';
+    // Show skeleton loading
+    list.innerHTML = Array(3).fill(`
+        <div class=”archive-skeleton”>
+            <div class=”archive-skeleton-icon”></div>
+            <div class=”archive-skeleton-body”>
+                <div class=”archive-skeleton-line”></div>
+                <div class=”archive-skeleton-line short”></div>
+                <div class=”archive-skeleton-line shorter”></div>
+            </div>
+        </div>
+    `).join('');
 
-    // Show “New Research” button for admins
     if (currentUser && currentUser.role === 'admin') addBtn.style.display = 'inline-flex';
     else addBtn.style.display = 'none';
 
     try {
-        // Load topics and items in parallel
         const [topicsRes, itemsRes] = await Promise.all([
             fetch('/archive-topics'),
             fetch(activeArchiveTopic ? `/archive?topic=${encodeURIComponent(activeArchiveTopic)}` : '/archive')
@@ -893,10 +2269,36 @@ async function loadArchive() {
         archiveTopics = await topicsRes.json();
         archiveData = await itemsRes.json();
 
+        // Render stats bar
+        const total = archiveTopics.reduce((s, t) => s + t.count, 0);
+        const withFiles = archiveData.filter(i => i.file_name).length;
+        const typeCounts = {};
+        archiveData.forEach(i => { typeCounts[i.doc_type] = (typeCounts[i.doc_type] || 0) + 1; });
+        const topType = Object.entries(typeCounts).sort((a, b) => b[1] - a[1])[0];
+
+        statsBar.innerHTML = `
+            <div class=”archive-stat-card”>
+                <div class=”archive-stat-icon” style=”background:var(--primary-light); color:var(--primary);”><i class=”fa-solid fa-book”></i></div>
+                <div><div class=”archive-stat-value”>${total}</div><div class=”archive-stat-label”>Total Documents</div></div>
+            </div>
+            <div class=”archive-stat-card”>
+                <div class=”archive-stat-icon” style=”background:#ede9fe; color:#7c3aed;”><i class=”fa-solid fa-tags”></i></div>
+                <div><div class=”archive-stat-value”>${archiveTopics.length}</div><div class=”archive-stat-label”>Topics</div></div>
+            </div>
+            <div class=”archive-stat-card”>
+                <div class=”archive-stat-icon” style=”background:#e0f2fe; color:#0284c7;”><i class=”fa-solid fa-paperclip”></i></div>
+                <div><div class=”archive-stat-value”>${withFiles}</div><div class=”archive-stat-label”>With Files</div></div>
+            </div>
+            ${topType ? `<div class=”archive-stat-card”>
+                <div class=”archive-stat-icon” style=”background:${DOC_TYPE_COLORS[topType[0]]}15; color:${DOC_TYPE_COLORS[topType[0]]};”><i class=”fa-solid ${DOC_TYPE_ICONS[topType[0]] || 'fa-file'}”></i></div>
+                <div><div class=”archive-stat-value”>${topType[1]}</div><div class=”archive-stat-label”>Most: ${DOC_TYPE_LABELS[topType[0]] || topType[0]}</div></div>
+            </div>` : ''}
+        `;
+
         // Render topic chips
-        topicsBar.innerHTML = `<button onclick=”setArchiveTopic('')” style=”padding:6px 14px; border-radius:20px; border:1px solid ${!activeArchiveTopic ? 'var(--primary)' : '#cbd5e1'}; background:${!activeArchiveTopic ? 'var(--primary)' : 'white'}; color:${!activeArchiveTopic ? 'white' : '#475569'}; cursor:pointer; font-size:0.85rem; font-weight:500;”>All (${archiveTopics.reduce((s, t) => s + t.count, 0)})</button>` +
+        topicsBar.innerHTML = `<button onclick=”setArchiveTopic('')” class=”archive-chip ${!activeArchiveTopic ? 'active' : ''}”>All (${total})</button>` +
             archiveTopics.map(t =>
-                `<button onclick=”setArchiveTopic('${t.topic}')” style=”padding:6px 14px; border-radius:20px; border:1px solid ${activeArchiveTopic === t.topic ? 'var(--primary)' : '#cbd5e1'}; background:${activeArchiveTopic === t.topic ? 'var(--primary)' : 'white'}; color:${activeArchiveTopic === t.topic ? 'white' : '#475569'}; cursor:pointer; font-size:0.85rem; font-weight:500;”>${t.topic} (${t.count})</button>`
+                `<button onclick=”setArchiveTopic('${t.topic}')” class=”archive-chip ${activeArchiveTopic === t.topic ? 'active' : ''}”>${t.topic} (${t.count})</button>`
             ).join('');
 
         renderArchiveList(archiveData);
@@ -913,13 +2315,22 @@ function setArchiveTopic(topic) {
 
 function filterArchive() {
     const q = (document.getElementById('archive-search').value || '').toLowerCase().trim();
-    if (!q) return renderArchiveList(archiveData);
-    const filtered = archiveData.filter(item =>
-        item.title.toLowerCase().includes(q) ||
-        item.topic.toLowerCase().includes(q) ||
-        (item.summary || '').toLowerCase().includes(q) ||
-        (item.author || '').toLowerCase().includes(q)
-    );
+    let filtered = archiveData;
+    if (q) {
+        filtered = archiveData.filter(item =>
+            item.title.toLowerCase().includes(q) ||
+            item.topic.toLowerCase().includes(q) ||
+            (item.summary || '').toLowerCase().includes(q) ||
+            (item.author || '').toLowerCase().includes(q) ||
+            (item.doc_type || '').toLowerCase().includes(q)
+        );
+    }
+    // Apply current sort
+    const sortBy = document.getElementById('archive-sort')?.value || 'newest';
+    if (sortBy === 'newest') filtered.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+    else if (sortBy === 'oldest') filtered.sort((a, b) => new Date(a.created_at) - new Date(b.created_at));
+    else if (sortBy === 'title') filtered.sort((a, b) => a.title.localeCompare(b.title));
+    else if (sortBy === 'type') filtered.sort((a, b) => (a.doc_type || '').localeCompare(b.doc_type || ''));
     renderArchiveList(filtered);
 }
 
@@ -929,48 +2340,83 @@ function renderArchiveList(items) {
     reader.style.display = 'none';
 
     if (!items.length) {
+        list.className = '';
         list.innerHTML = `
-            <div style=”text-align:center; padding:60px 20px; color:#94a3b8;”>
-                <i class=”fa-solid fa-folder-open fa-3x” style=”margin-bottom:16px; opacity:0.5;”></i>
-                <p style=”font-size:1.1rem; margin:0;”>No research published yet.</p>
-                <p style=”font-size:0.9rem;”>Admins can add articles, reports, and analyses using the “New Research” button.</p>
+            <div class=”archive-empty”>
+                <div class=”archive-empty-icon”><i class=”fa-solid fa-folder-open”></i></div>
+                <h3>No research found</h3>
+                <p>${activeArchiveTopic || document.getElementById('archive-search').value
+                    ? 'Try adjusting your filters or search terms.'
+                    : 'Research articles, reports, and analyses will appear here once published.'}</p>
             </div>`;
         return;
     }
 
-    list.innerHTML = items.map(item => {
+    list.className = archiveViewMode === 'grid' ? 'archive-grid-view' : '';
+
+    list.innerHTML = items.map((item, idx) => {
         const icon = DOC_TYPE_ICONS[item.doc_type] || 'fa-file';
         const color = DOC_TYPE_COLORS[item.doc_type] || '#64748b';
         const date = new Date(item.created_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
         const isAdmin = currentUser && currentUser.role === 'admin';
+        const fileExt = item.file_name ? item.file_name.split('.').pop().toUpperCase() : '';
 
         return `
-        <div onclick=”openArchiveItem(${item.id})” style=”padding:18px 20px; background:white; border-radius:10px; border:1px solid #e2e8f0; margin-bottom:10px; cursor:pointer; transition:all 0.15s; display:flex; gap:16px; align-items:flex-start;” onmouseover=”this.style.borderColor='var(--primary)';this.style.boxShadow='0 2px 8px rgba(0,0,0,0.06)'” onmouseout=”this.style.borderColor='#e2e8f0';this.style.boxShadow='none'”>
-            <div style=”width:42px; height:42px; border-radius:10px; background:${color}15; display:flex; align-items:center; justify-content:center; flex-shrink:0;”>
-                <i class=”fa-solid ${icon}” style=”color:${color}; font-size:1.1rem;”></i>
-            </div>
-            <div style=”flex:1; min-width:0;”>
-                <div style=”display:flex; align-items:center; gap:8px; flex-wrap:wrap; margin-bottom:4px;”>
-                    <span style=”font-weight:600; color:#1e293b; font-size:1rem;”>${item.title}</span>
+        <div class=”archive-item” style=”animation-delay:${idx * 0.04}s” onclick=”openArchiveItem(${item.id})”>
+            <div class=”archive-item-main”>
+                <div class=”archive-item-icon” style=”background:${color}15;”>
+                    <i class=”fa-solid ${icon}” style=”color:${color};”></i>
                 </div>
-                <div style=”display:flex; gap:8px; align-items:center; flex-wrap:wrap; margin-bottom:6px;”>
-                    <span style=”padding:2px 8px; border-radius:4px; background:${color}15; color:${color}; font-size:0.75rem; font-weight:600; text-transform:uppercase;”>${item.doc_type}</span>
-                    <span style=”padding:2px 8px; border-radius:4px; background:#f1f5f9; color:#475569; font-size:0.75rem; font-weight:500;”>${item.topic}</span>
-                    ${item.author ? `<span style=”color:#94a3b8; font-size:0.8rem;”><i class=”fa-solid fa-user” style=”margin-right:3px;”></i>${item.author}</span>` : ''}
-                    <span style=”color:#cbd5e1; font-size:0.8rem;”><i class=”fa-regular fa-calendar” style=”margin-right:3px;”></i>${date}</span>
+                <div class=”archive-item-body”>
+                    <div class=”archive-item-title”>${item.title}</div>
+                    ${item.summary ? `<p class=”archive-item-summary”>${item.summary}</p>` : ''}
                 </div>
-                ${item.summary ? `<p style=”margin:0; color:#64748b; font-size:0.88rem; line-height:1.5; overflow:hidden; text-overflow:ellipsis; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical;”>${item.summary}</p>` : ''}
             </div>
-            ${isAdmin ? `<button onclick=”event.stopPropagation(); deleteArchiveItem(${item.id})” title=”Delete” style=”background:none; border:none; color:#cbd5e1; cursor:pointer; padding:4px 8px; font-size:1rem;” onmouseover=”this.style.color='#ef4444'” onmouseout=”this.style.color='#cbd5e1'”><i class=”fa-solid fa-trash-can”></i></button>` : ''}
+            <div class=”archive-item-footer”>
+                <div class=”archive-item-tags”>
+                    <span class=”archive-badge” style=”background:${color}15; color:${color};”>${item.doc_type}</span>
+                    <span class=”archive-badge-topic”>${item.topic}</span>
+                    ${item.file_name ? `<span class=”archive-badge-file”><i class=”fa-solid fa-paperclip”></i>${fileExt}</span>` : ''}
+                    ${item.author ? `<span class=”archive-item-meta-text”><i class=”fa-solid fa-user”></i> ${item.author}</span>` : ''}
+                    <span class=”archive-item-meta-text”><i class=”fa-regular fa-calendar”></i> ${date}</span>
+                </div>
+                ${isAdmin ? `<div class=”archive-item-actions”>
+                    <button onclick=”event.stopPropagation(); editArchiveItem(${item.id})” title=”Edit” class=”archive-edit-btn-sm”><i class=”fa-solid fa-pen”></i> Edit</button>
+                    <button onclick=”event.stopPropagation(); deleteArchiveItem(${item.id})” title=”Delete” class=”archive-delete-btn”><i class=”fa-solid fa-trash-can”></i> Delete</button>
+                </div>` : ''}
+            </div>
         </div>`;
     }).join('');
+}
+
+function setArchiveView(mode) {
+    archiveViewMode = mode;
+    document.getElementById('archive-view-list').classList.toggle('active', mode === 'list');
+    document.getElementById('archive-view-grid').classList.toggle('active', mode === 'grid');
+    renderArchiveList(archiveData);
+}
+
+function sortArchive() {
+    const sortBy = document.getElementById('archive-sort').value;
+    let sorted = [...archiveData];
+    if (sortBy === 'newest') sorted.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+    else if (sortBy === 'oldest') sorted.sort((a, b) => new Date(a.created_at) - new Date(b.created_at));
+    else if (sortBy === 'title') sorted.sort((a, b) => a.title.localeCompare(b.title));
+    else if (sortBy === 'type') sorted.sort((a, b) => (a.doc_type || '').localeCompare(b.doc_type || ''));
+    renderArchiveList(sorted);
 }
 
 async function openArchiveItem(id) {
     const reader = document.getElementById('archive-reader');
     reader.style.display = 'block';
-    reader.innerHTML = '<div style=”text-align:center; padding:30px;”><i class=”fa-solid fa-spinner fa-spin fa-2x” style=”color:#94a3b8;”></i></div>';
-    reader.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    reader.innerHTML = `
+        <button class=”archive-reader-back” onclick=”closeArchiveReader()”>
+            <i class=”fa-solid fa-arrow-left”></i> Back to archive
+        </button>
+        <div class=”archive-reader-body” style=”text-align:center; padding:40px;”>
+            <i class=”fa-solid fa-spinner fa-spin fa-2x” style=”color:#94a3b8;”></i>
+        </div>`;
+    reader.scrollIntoView({ behavior: 'smooth', block: 'start' });
 
     try {
         const res = await fetch(`/archive/${id}`);
@@ -979,32 +2425,61 @@ async function openArchiveItem(id) {
         const icon = DOC_TYPE_ICONS[item.doc_type] || 'fa-file';
         const date = new Date(item.created_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' });
         const isAdmin = currentUser && currentUser.role === 'admin';
+        const fileExt = item.file_name ? item.file_name.split('.').pop().toUpperCase() : '';
+        const fileIcon = fileExt === 'PDF' ? 'fa-file-pdf' : fileExt === 'PPTX' || fileExt === 'PPT' ? 'fa-file-powerpoint' : fileExt === 'XLSX' || fileExt === 'XLS' ? 'fa-file-excel' : 'fa-file-word';
+        const wordCount = item.content ? item.content.split(/\s+/).length : 0;
+        const readTime = Math.max(1, Math.ceil(wordCount / 200));
 
         reader.innerHTML = `
-            <div style=”display:flex; justify-content:space-between; align-items:flex-start; flex-wrap:wrap; gap:12px; margin-bottom:20px;”>
-                <div>
-                    <h2 style=”margin:0 0 10px 0; color:#1e293b; font-size:1.5rem; line-height:1.3;”>${item.title}</h2>
-                    <div style=”display:flex; gap:8px; flex-wrap:wrap; align-items:center;”>
-                        <span style=”padding:4px 10px; border-radius:6px; background:${color}15; color:${color}; font-size:0.8rem; font-weight:600; text-transform:uppercase;”>
-                            <i class=”fa-solid ${icon}” style=”margin-right:4px;”></i>${item.doc_type}
-                        </span>
-                        <span style=”padding:4px 10px; border-radius:6px; background:#f1f5f9; color:#475569; font-size:0.8rem; font-weight:500;”>${item.topic}</span>
-                        ${item.author ? `<span style=”color:#64748b; font-size:0.85rem;”><i class=”fa-solid fa-user” style=”margin-right:4px;”></i>${item.author}</span>` : ''}
-                        <span style=”color:#94a3b8; font-size:0.85rem;”><i class=”fa-regular fa-calendar” style=”margin-right:4px;”></i>${date}</span>
+            <button class=”archive-reader-back” onclick=”closeArchiveReader()”>
+                <i class=”fa-solid fa-arrow-left”></i> Back to archive
+            </button>
+            <div class=”archive-reader-body”>
+                <div class=”archive-reader-header”>
+                    <div>
+                        <h2 class=”archive-reader-title”>${item.title}</h2>
+                        <div class=”archive-reader-meta”>
+                            <span class=”archive-badge” style=”background:${color}15; color:${color}; padding:4px 10px; border-radius:6px; font-size:0.8rem;”>
+                                <i class=”fa-solid ${icon}” style=”margin-right:4px;”></i>${item.doc_type}
+                            </span>
+                            <span class=”archive-badge-topic” style=”padding:4px 10px; border-radius:6px; font-size:0.8rem;”>${item.topic}</span>
+                            ${item.author ? `<span class=”archive-item-meta-text” style=”font-size:0.85rem;”><i class=”fa-solid fa-user”></i> ${item.author}</span>` : ''}
+                            <span class=”archive-item-meta-text” style=”font-size:0.85rem;”><i class=”fa-regular fa-calendar”></i> ${date}</span>
+                            ${wordCount > 0 ? `<span class=”archive-item-meta-text” style=”font-size:0.85rem;”><i class=”fa-regular fa-clock”></i> ${readTime} min read</span>` : ''}
+                        </div>
+                    </div>
+                    <div class=”archive-reader-actions”>
+                        ${isAdmin ? `<button onclick=”editArchiveItem(${item.id})” class=”archive-btn-sm”><i class=”fa-solid fa-pen”></i> Edit</button>` : ''}
+                        <button onclick=”closeArchiveReader()” class=”archive-btn-sm”><i class=”fa-solid fa-xmark”></i> Close</button>
                     </div>
                 </div>
-                <div style=”display:flex; gap:8px;”>
-                    ${isAdmin ? `<button onclick=”editArchiveItem(${item.id})” style=”padding:8px 14px; background:#f1f5f9; border:none; border-radius:8px; cursor:pointer; color:#475569; font-size:0.85rem;”><i class=”fa-solid fa-pen”></i> Edit</button>` : ''}
-                    <button onclick=”document.getElementById('archive-reader').style.display='none'” style=”padding:8px 14px; background:#f1f5f9; border:none; border-radius:8px; cursor:pointer; color:#475569; font-size:0.85rem;”>&times; Close</button>
-                </div>
+                ${item.file_name ? `
+                <div class=”archive-file-card”>
+                    <div class=”archive-file-icon”><i class=”fa-solid ${fileIcon}”></i></div>
+                    <div class=”archive-file-info”>
+                        <div class=”archive-file-name”>${item.file_name}</div>
+                        <div class=”archive-file-hint”>${fileExt} document — click to download</div>
+                    </div>
+                    <a href=”/archive/${item.id}/download” class=”archive-download-btn”><i class=”fa-solid fa-download”></i> Download</a>
+                </div>` : ''}
+                ${item.summary ? `<div class=”archive-summary-box”>${item.summary}</div>` : ''}
+                <div class=”archive-content”>${item.content || '<span style=”color:#94a3b8; font-style:italic;”>No written content — see attached document above.</span>'}</div>
+                ${item.source_url ? `<div class=”archive-source-link”><a href=”${item.source_url}” target=”_blank”><i class=”fa-solid fa-arrow-up-right-from-square”></i> View original source</a></div>` : ''}
             </div>
-            ${item.summary ? `<div style=”padding:14px 18px; background:#f8fafc; border-radius:8px; border-left:3px solid ${color}; margin-bottom:20px; color:#475569; font-size:0.95rem; line-height:1.6;”>${item.summary}</div>` : ''}
-            <div style=”color:#1e293b; font-size:1rem; line-height:1.8; white-space:pre-wrap;”>${item.content || '<span style=”color:#94a3b8;”>No content yet.</span>'}</div>
-            ${item.source_url ? `<div style=”margin-top:24px; padding-top:16px; border-top:1px solid #e2e8f0;”><a href=”${item.source_url}” target=”_blank” style=”color:var(--primary); text-decoration:none; font-size:0.9rem;”><i class=”fa-solid fa-arrow-up-right-from-square” style=”margin-right:4px;”></i>View original source</a></div>` : ''}
         `;
     } catch (err) {
-        reader.innerHTML = '<div style=”text-align:center; padding:30px; color:#ef4444;”>Failed to load article.</div>';
+        reader.innerHTML = `
+            <button class=”archive-reader-back” onclick=”closeArchiveReader()”>
+                <i class=”fa-solid fa-arrow-left”></i> Back to archive
+            </button>
+            <div class=”archive-reader-body” style=”text-align:center; padding:30px; color:#ef4444;”>Failed to load article.</div>`;
     }
+}
+
+function closeArchiveReader() {
+    const reader = document.getElementById('archive-reader');
+    reader.style.display = 'none';
+    document.getElementById('archive-list').scrollIntoView({ behavior: 'smooth', block: 'start' });
 }
 
 function showArchiveForm(item) {
@@ -1019,7 +2494,40 @@ function showArchiveForm(item) {
     document.getElementById('arch-source').value = item ? (item.source_url || '') : '';
     document.getElementById('arch-summary').value = item ? (item.summary || '') : '';
     document.getElementById('arch-content').value = item ? (item.content || '') : '';
+    // Reset file input
+    const fileInput = document.getElementById('arch-file');
+    if (fileInput) fileInput.value = '';
+    const fileInfo = document.getElementById('arch-file-info');
+    if (item && item.file_name) {
+        fileInfo.classList.add('show');
+        fileInfo.innerHTML = `<i class="fa-solid fa-file" style="color:var(--primary);"></i> Current: <strong>${item.file_name}</strong> <span style="color:#94a3b8; margin-left:4px;">(upload new to replace)</span>`;
+    } else {
+        fileInfo.classList.remove('show');
+        fileInfo.innerHTML = '';
+    }
     form.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+}
+
+function updateFileLabel(input) {
+    const fileInfo = document.getElementById('arch-file-info');
+    if (input.files.length > 0) {
+        const file = input.files[0];
+        const sizeMB = (file.size / 1024 / 1024).toFixed(1);
+        const ext = file.name.split('.').pop().toUpperCase();
+        fileInfo.classList.add('show');
+        fileInfo.innerHTML = `<i class="fa-solid fa-file-circle-check" style="color:var(--primary);"></i> <strong>${file.name}</strong> <span style="color:#94a3b8;">(${ext}, ${sizeMB} MB)</span> <button onclick="event.stopPropagation(); clearFileInput()" style="background:none; border:none; color:#ef4444; cursor:pointer; padding:2px 6px; margin-left:auto;"><i class="fa-solid fa-xmark"></i></button>`;
+    } else {
+        fileInfo.classList.remove('show');
+        fileInfo.innerHTML = '';
+    }
+}
+
+function clearFileInput() {
+    const fileInput = document.getElementById('arch-file');
+    if (fileInput) fileInput.value = '';
+    const fileInfo = document.getElementById('arch-file-info');
+    fileInfo.classList.remove('show');
+    fileInfo.innerHTML = '';
 }
 
 function hideArchiveForm() {
@@ -1028,28 +2536,39 @@ function hideArchiveForm() {
 
 async function saveArchiveItem() {
     const editId = document.getElementById('archive-edit-id').value;
-    const body = {
-        title: document.getElementById('arch-title').value.trim(),
-        topic: document.getElementById('arch-topic').value.trim(),
-        doc_type: document.getElementById('arch-doctype').value,
-        author: document.getElementById('arch-author').value.trim(),
-        source_url: document.getElementById('arch-source').value.trim(),
-        summary: document.getElementById('arch-summary').value.trim(),
-        content: document.getElementById('arch-content').value
-    };
+    const title = document.getElementById('arch-title').value.trim();
+    const topic = document.getElementById('arch-topic').value.trim();
 
-    if (!body.title || !body.topic) return alert('Title and Topic are required.');
+    if (!title || !topic) return alert('Title and Topic are required.');
+
+    const formData = new FormData();
+    formData.append('title', title);
+    formData.append('topic', topic);
+    formData.append('doc_type', document.getElementById('arch-doctype').value);
+    formData.append('author', document.getElementById('arch-author').value.trim());
+    formData.append('source_url', document.getElementById('arch-source').value.trim());
+    formData.append('summary', document.getElementById('arch-summary').value.trim());
+    formData.append('content', document.getElementById('arch-content').value);
+
+    const fileInput = document.getElementById('arch-file');
+    if (fileInput && fileInput.files.length > 0) {
+        formData.append('file', fileInput.files[0]);
+    }
 
     try {
         const url = editId ? `/archive/${editId}` : '/archive';
         const method = editId ? 'PUT' : 'POST';
         const res = await fetch(url, {
             method,
-            headers: { 'Content-Type': 'application/json' },
             credentials: 'include',
-            body: JSON.stringify(body)
+            headers: { 'Accept': 'application/json' },
+            body: formData
         });
-        if (!res.ok) { const err = await res.json(); throw new Error(err.error); }
+        if (!res.ok) {
+            const text = await res.text();
+            try { const err = JSON.parse(text); throw new Error(err.error || 'Save failed'); }
+            catch (e) { if (e.message) throw e; throw new Error('Server error'); }
+        }
         hideArchiveForm();
         loadArchive();
     } catch (err) {

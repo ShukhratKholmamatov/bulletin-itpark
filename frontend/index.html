@@ -64,12 +64,36 @@
                     </div>
                     <div class="input-group">
                         <select id="reg-dept">
-                            <option value="General">Select Department...</option>
-                            <option value="Strategy">Strategy</option>
-                            <option value="Data">Data Analysis</option>
-                            <option value="Investment">Investment</option>
+                            <option value="">Select Department...</option>
+                            <option value="Product Export">Product Export Development</option>
+                            <option value="Startup Ecosystem">Startup Ecosystem Development</option>
+                            <option value="Western Markets">Software Companies — Western Markets</option>
+                            <option value="Eastern Markets">Software Companies — Eastern Markets</option>
+                            <option value="GovTech">GovTech Solutions Development</option>
+                            <option value="Venture Capital">Venture Capital Attraction</option>
+                            <option value="Analytics">Information Consolidation and Analytics</option>
+                            <option value="BPO Monitoring">BPO Companies Monitoring</option>
+                            <option value="Residents Relations">Residents Relations</option>
+                            <option value="Residents Registration">Residents Registration</option>
+                            <option value="Residents Monitoring">Residents Monitoring</option>
+                            <option value="Softlanding">Softlanding</option>
+                            <option value="Legal Ecosystem">Legal Ecosystem Development</option>
+                            <option value="AI Infrastructure">AI Infrastructure Development</option>
+                            <option value="AI Research">AI Research and Training</option>
+                            <option value="Inclusive Projects">Inclusive Projects and Women's Entrepreneurship</option>
+                            <option value="Regional Development">Regional Development</option>
+                            <option value="Freelancers & Youth">Freelancers & Youth in IT</option>
+                            <option value="Infrastructure">Infrastructure and Construction Projects</option>
+                            <option value="Infrastructure Dev">Infrastructure Development</option>
+                            <option value="PPP Investors">Public-Private Partnership Investor Attraction</option>
+                            <option value="IT Outsourcing">IT Outsourcing and Shared Services</option>
+                            <option value="Global Marketing">Global Marketing and Public Relations</option>
+                            <option value="Multimedia">Multimedia</option>
+                            <option value="Public Relations">Public Relations</option>
+                            <option value="Marketing">Marketing</option>
+                            <option value="Event Management">Event Management</option>
                         </select>
-                    </div>
+                    </div>x
                     <div class="input-group">
                         <input type="password" id="reg-password" placeholder="Create Password">
                     </div>
@@ -96,6 +120,9 @@
                         <span id="user-dept" class="dept">General Dept</span>
                     </div>
                     <img id="user-avatar" src="" alt="Profile" class="avatar-img">
+                    <button onclick="openSettings()" class="settings-gear-btn" title="Settings">
+                        <i class="fa-solid fa-gear"></i>
+                    </button>
                     <button onclick="logout()" class="logout-mini-btn" title="Sign Out">
                         <i class="fa-solid fa-right-from-bracket"></i>
                     </button>
@@ -113,6 +140,9 @@
                     <button onclick="showTab('saved')" id="tab-saved">
                         <i class="fa-solid fa-bookmark"></i> Saved Items
                     </button>
+                    <button onclick="showTab('workspace')" id="tab-workspace">
+                        <i class="fa-solid fa-briefcase"></i> My Workspace
+                    </button>
                     <button onclick="showTab('dashboard')" id="tab-dashboard">
                         <i class="fa-solid fa-chart-pie"></i> Analytics
                     </button>
@@ -124,6 +154,9 @@
                     </button>
                     <button onclick="showTab('archive')" id="tab-archive">
                         <i class="fa-solid fa-folder-open"></i> Research Archive
+                    </button>
+                    <button onclick="showTab('admin')" id="tab-admin" style="display:none;">
+                        <i class="fa-solid fa-shield-halved"></i> Admin Panel
                     </button>
                 </nav>
 
@@ -145,7 +178,7 @@
                 <section id="filters">
                     <div class="filter-group">
                         <div class="select-wrapper">
-                            <select id="topic-filter">
+                            <select id="topic-filter" onchange="if(currentTab === 'all') { resetNews(); loadNews(); }">
                                 <option value="">All Topics</option>
                                 <option value="AI">Artificial Intelligence</option>
                                 <option value="Startup">Startups</option>
@@ -157,11 +190,35 @@
                         </div>
 
                         <div class="select-wrapper">
-                            <select id="department-filter">
+                            <select id="department-filter" onchange="if(currentTab === 'all') { resetNews(); loadNews(); }">
                                 <option value="">All Departments</option>
-                                <option value="Data">Data Analysis</option>
-                                <option value="Strategy">Strategy</option>
-                                <option value="Development">Development</option>
+                                <option value="Product Export">Product Export</option>
+                                <option value="Startup Ecosystem">Startup Ecosystem</option>
+                                <option value="Western Markets">Western Markets</option>
+                                <option value="Eastern Markets">Eastern Markets</option>
+                                <option value="GovTech">GovTech</option>
+                                <option value="Venture Capital">Venture Capital</option>
+                                <option value="Analytics">Analytics</option>
+                                <option value="BPO Monitoring">BPO Monitoring</option>
+                                <option value="Residents Relations">Residents Relations</option>
+                                <option value="Residents Registration">Residents Registration</option>
+                                <option value="Residents Monitoring">Residents Monitoring</option>
+                                <option value="Softlanding">Softlanding</option>
+                                <option value="Legal Ecosystem">Legal Ecosystem</option>
+                                <option value="AI Infrastructure">AI Infrastructure</option>
+                                <option value="AI Research">AI Research</option>
+                                <option value="Inclusive Projects">Inclusive Projects</option>
+                                <option value="Regional Development">Regional Development</option>
+                                <option value="Freelancers & Youth">Freelancers & Youth</option>
+                                <option value="Infrastructure">Infrastructure</option>
+                                <option value="Infrastructure Dev">Infrastructure Dev</option>
+                                <option value="PPP Investors">PPP Investors</option>
+                                <option value="IT Outsourcing">IT Outsourcing</option>
+                                <option value="Global Marketing">Global Marketing</option>
+                                <option value="Multimedia">Multimedia</option>
+                                <option value="Public Relations">Public Relations</option>
+                                <option value="Marketing">Marketing</option>
+                                <option value="Event Management">Event Management</option>
                             </select>
                             <i class="fa-solid fa-chevron-down"></i>
                         </div>
@@ -185,8 +242,9 @@
 
                     <div class="search-group">
                         <i class="fa-solid fa-magnifying-glass search-icon"></i>
-                        <input id="keyword" placeholder="Search keywords..." />
-                        <button onclick="loadNews()" class="search-btn">Search</button>
+                        <input id="keyword" placeholder="Search keywords..." onkeydown="if(event.key==='Enter'){resetNews();loadNews();}" oninput="document.getElementById('keyword-clear-btn').style.display=this.value?'flex':'none';" />
+                        <button id="keyword-clear-btn" class="keyword-clear-btn" onclick="document.getElementById('keyword').value=''; this.style.display='none'; resetNews(); loadNews();" style="display:none;">&times;</button>
+                        <button onclick="resetNews(); loadNews();" class="search-btn">Search</button>
                     </div>
                 </section>
 
@@ -234,56 +292,296 @@
                 </div>
 
                 <div id="archive-container" class="tab-content" style="display: none;">
-                    <!-- Topic chips bar -->
-                    <div id="archive-topics" style="display:flex; gap:8px; flex-wrap:wrap; margin-bottom:20px;"></div>
+                    <div id="archive-stats-bar" class="archive-stats-bar"></div>
 
-                    <!-- Search + Add button -->
-                    <div style="display:flex; gap:10px; margin-bottom:20px; flex-wrap:wrap;">
-                        <div style="flex:1; min-width:200px; position:relative;">
-                            <i class="fa-solid fa-magnifying-glass" style="position:absolute; left:14px; top:50%; transform:translateY(-50%); color:#94a3b8;"></i>
-                            <input type="text" id="archive-search" placeholder="Search research..."
-                                   oninput="filterArchive()"
-                                   style="width:100%; padding:12px 16px 12px 40px; border-radius:10px; border:1px solid #cbd5e1; background:white; font-size:0.95rem; box-sizing:border-box;">
+                    <div id="archive-topics" class="archive-topics-bar"></div>
+
+                    <div class="archive-toolbar">
+                        <div class="archive-search-box">
+                            <i class="fa-solid fa-magnifying-glass"></i>
+                            <input type="text" id="archive-search" placeholder="Search by title, topic, author..." oninput="filterArchive()">
                         </div>
-                        <button id="archive-add-btn" onclick="showArchiveForm()" style="display:none; padding:10px 20px; background:var(--primary); color:white; border:none; border-radius:10px; font-weight:600; cursor:pointer; white-space:nowrap;">
-                            <i class="fa-solid fa-plus"></i> New Research
-                        </button>
+                        <div class="archive-toolbar-actions">
+                            <select id="archive-sort" class="archive-sort-select" onchange="sortArchive()">
+                                <option value="newest">Newest first</option>
+                                <option value="oldest">Oldest first</option>
+                                <option value="title">A — Z</option>
+                                <option value="type">By type</option>
+                            </select>
+                            <div class="archive-view-toggle">
+                                <button id="archive-view-list" class="archive-view-btn active" onclick="setArchiveView('list')" title="List view">
+                                    <i class="fa-solid fa-list"></i>
+                                </button>
+                                <button id="archive-view-grid" class="archive-view-btn" onclick="setArchiveView('grid')" title="Grid view">
+                                    <i class="fa-solid fa-table-cells"></i>
+                                </button>
+                            </div>
+                            <button id="archive-add-btn" class="archive-add-btn" onclick="showArchiveForm()">
+                                <i class="fa-solid fa-plus"></i> New Research
+                            </button>
+                        </div>
                     </div>
 
-                    <!-- Research list -->
                     <div id="archive-list"></div>
 
-                    <!-- Add/Edit form (hidden by default) -->
-                    <div id="archive-form" style="display:none; padding:24px; background:#f8fafc; border-radius:12px; border:1px solid #e2e8f0; margin-bottom:24px;">
-                        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:16px;">
-                            <h3 id="archive-form-title" style="margin:0; color:#1e293b;">New Research</h3>
-                            <button onclick="hideArchiveForm()" style="background:none; border:none; font-size:1.3rem; cursor:pointer; color:#94a3b8;">&times;</button>
+                    <div id="archive-form" class="archive-form">
+                        <div class="archive-form-header">
+                            <h3 id="archive-form-title">New Research</h3>
+                            <button onclick="hideArchiveForm()" class="archive-form-close">&times;</button>
                         </div>
                         <input type="hidden" id="archive-edit-id">
-                        <div style="display:grid; gap:12px;">
-                            <input type="text" id="arch-title" placeholder="Title *" style="padding:10px 14px; border-radius:8px; border:1px solid #cbd5e1; font-size:0.95rem;">
-                            <div style="display:grid; grid-template-columns:1fr 1fr 1fr; gap:12px;">
-                                <input type="text" id="arch-topic" placeholder="Topic * (e.g. AI, Crypto)" style="padding:10px 14px; border-radius:8px; border:1px solid #cbd5e1; font-size:0.95rem;">
-                                <select id="arch-doctype" style="padding:10px 14px; border-radius:8px; border:1px solid #cbd5e1; font-size:0.95rem;">
+                        <div class="archive-form-grid">
+                            <input type="text" id="arch-title" placeholder="Title *">
+                            <div class="archive-form-row">
+                                <input type="text" id="arch-topic" placeholder="Topic * (e.g. AI, Crypto)">
+                                <select id="arch-doctype">
                                     <option value="article">Article</option>
                                     <option value="report">Report</option>
                                     <option value="brief">Brief / Memo</option>
                                     <option value="presentation">Presentation</option>
                                     <option value="analysis">Analysis</option>
                                 </select>
-                                <input type="text" id="arch-author" placeholder="Author" style="padding:10px 14px; border-radius:8px; border:1px solid #cbd5e1; font-size:0.95rem;">
+                                <input type="text" id="arch-author" placeholder="Author">
                             </div>
-                            <input type="text" id="arch-source" placeholder="Source URL (optional)" style="padding:10px 14px; border-radius:8px; border:1px solid #cbd5e1; font-size:0.95rem;">
-                            <textarea id="arch-summary" placeholder="Summary (short description)" rows="2" style="padding:10px 14px; border-radius:8px; border:1px solid #cbd5e1; font-size:0.95rem; resize:vertical;"></textarea>
-                            <textarea id="arch-content" placeholder="Full content / notes..." rows="8" style="padding:10px 14px; border-radius:8px; border:1px solid #cbd5e1; font-size:0.95rem; resize:vertical; font-family:inherit;"></textarea>
-                            <button onclick="saveArchiveItem()" style="padding:12px; background:var(--primary); color:white; border:none; border-radius:10px; font-weight:600; cursor:pointer; font-size:1rem;">
-                                <i class="fa-solid fa-floppy-disk"></i> Save
+                            <input type="text" id="arch-source" placeholder="Source URL (optional)">
+                            <textarea id="arch-summary" placeholder="Summary (short description)" rows="2"></textarea>
+                            <textarea id="arch-content" placeholder="Full content / notes..." rows="8"></textarea>
+                            <div class="archive-upload-zone" onclick="document.getElementById('arch-file').click()">
+                                <label class="archive-upload-label">
+                                    <i class="fa-solid fa-cloud-arrow-up"></i>
+                                    <span>Click to attach a file (PDF, DOC, DOCX, PPT, XLS — max 20MB)</span>
+                                    <input type="file" id="arch-file" accept=".pdf,.doc,.docx,.ppt,.pptx,.xls,.xlsx" style="display:none;" onchange="updateFileLabel(this)">
+                                </label>
+                                <div id="arch-file-info" class="archive-file-preview"></div>
+                            </div>
+                            <button onclick="saveArchiveItem()" class="archive-save-btn">
+                                <i class="fa-solid fa-floppy-disk"></i> Save Research
                             </button>
                         </div>
                     </div>
 
-                    <!-- Reader panel for full content -->
-                    <div id="archive-reader" style="display:none; padding:28px; background:white; border-radius:12px; border:1px solid #e2e8f0; margin-top:20px;"></div>
+                    <div id="archive-reader" class="archive-reader"></div>
+                </div>
+
+                <div id="admin-container" class="tab-content" style="display:none;">
+                    <div class="admin-subnav">
+                        <button class="admin-subnav-btn active" onclick="showAdminSection('overview')" id="admin-sub-overview">
+                            <i class="fa-solid fa-chart-line"></i> Overview
+                        </button>
+                        <button class="admin-subnav-btn" onclick="showAdminSection('users')" id="admin-sub-users">
+                            <i class="fa-solid fa-users"></i> Users
+                        </button>
+                        <button class="admin-subnav-btn" onclick="showAdminSection('content')" id="admin-sub-content">
+                            <i class="fa-solid fa-database"></i> Content
+                        </button>
+                        <button class="admin-subnav-btn" onclick="showAdminSection('activity')" id="admin-sub-activity">
+                            <i class="fa-solid fa-chart-simple"></i> Activity
+                        </button>
+                    </div>
+
+                    <div id="admin-overview" class="admin-section">
+                        <div id="admin-stats-bar" class="admin-stats-bar"></div>
+                        <div id="admin-dept-chart-wrap" class="admin-chart-card">
+                            <h3><i class="fa-solid fa-building"></i> Users by Department</h3>
+                            <div class="admin-dept-bars" id="admin-dept-bars"></div>
+                        </div>
+                    </div>
+
+                    <div id="admin-users" class="admin-section" style="display:none;">
+                        <div class="admin-users-toolbar">
+                            <div class="admin-search-box">
+                                <i class="fa-solid fa-magnifying-glass"></i>
+                                <input type="text" id="admin-user-search" placeholder="Search by name or email..." oninput="debounceAdminUserSearch()">
+                            </div>
+                            <div class="admin-filters">
+                                <select id="admin-dept-filter" onchange="loadAdminUsers()">
+                                    <option value="">All Departments</option>
+                                    <option value="Product Export">Product Export</option>
+                                    <option value="Startup Ecosystem">Startup Ecosystem</option>
+                                    <option value="Western Markets">Western Markets</option>
+                                    <option value="Eastern Markets">Eastern Markets</option>
+                                    <option value="GovTech">GovTech</option>
+                                    <option value="Venture Capital">Venture Capital</option>
+                                    <option value="Analytics">Analytics</option>
+                                    <option value="BPO Monitoring">BPO Monitoring</option>
+                                    <option value="Residents Relations">Residents Relations</option>
+                                    <option value="Residents Registration">Residents Registration</option>
+                                    <option value="Residents Monitoring">Residents Monitoring</option>
+                                    <option value="Softlanding">Softlanding</option>
+                                    <option value="Legal Ecosystem">Legal Ecosystem</option>
+                                    <option value="AI Infrastructure">AI Infrastructure</option>
+                                    <option value="AI Research">AI Research</option>
+                                    <option value="Inclusive Projects">Inclusive Projects</option>
+                                    <option value="Regional Development">Regional Development</option>
+                                    <option value="Freelancers & Youth">Freelancers & Youth</option>
+                                    <option value="Infrastructure">Infrastructure</option>
+                                    <option value="Infrastructure Dev">Infrastructure Dev</option>
+                                    <option value="PPP Investors">PPP Investors</option>
+                                    <option value="IT Outsourcing">IT Outsourcing</option>
+                                    <option value="Global Marketing">Global Marketing</option>
+                                    <option value="Multimedia">Multimedia</option>
+                                    <option value="Public Relations">Public Relations</option>
+                                    <option value="Marketing">Marketing</option>
+                                    <option value="Event Management">Event Management</option>
+                                </select>
+                                <select id="admin-role-filter" onchange="loadAdminUsers()">
+                                    <option value="">All Roles</option>
+                                    <option value="admin">Admin</option>
+                                    <option value="viewer">Viewer</option>
+                                </select>
+                            </div>
+                        </div>
+                        <div id="admin-users-count" class="admin-users-count"></div>
+                        <div id="admin-users-table-wrap" class="admin-table-wrap">
+                            <table class="admin-table" id="admin-users-table">
+                                <thead>
+                                    <tr>
+                                        <th>User</th>
+                                        <th>Email</th>
+                                        <th>Department</th>
+                                        <th>Role</th>
+                                        <th>Joined</th>
+                                        <th>Actions</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="admin-users-tbody"></tbody>
+                            </table>
+                        </div>
+                    </div>
+
+                    <div id="admin-content" class="admin-section" style="display:none;">
+                        <div id="admin-content-stats" class="admin-stats-bar"></div>
+                        <div class="admin-content-grid">
+                            <div class="admin-chart-card">
+                                <h3><i class="fa-solid fa-file-lines"></i> Research by Type</h3>
+                                <div id="admin-research-types"></div>
+                            </div>
+                            <div class="admin-chart-card">
+                                <h3><i class="fa-solid fa-fire"></i> Most Saved Articles</h3>
+                                <div id="admin-popular-articles"></div>
+                            </div>
+                        </div>
+                        <div class="admin-table-wrap" style="margin-top:20px;">
+                            <h3 style="padding:16px 20px 0; margin:0;"><i class="fa-solid fa-box-archive"></i> Archive Documents</h3>
+                            <div style="padding:8px 20px;">
+                                <input type="text" id="admin-archive-search" placeholder="Search archive..." oninput="debounceAdminArchiveSearch()" style="width:100%; padding:8px 12px; border-radius:8px; border:1.5px solid #e2e8f0; font-size:0.88rem; background:var(--bg-card); color:var(--text-main);">
+                            </div>
+                            <table class="admin-table">
+                                <thead><tr><th>Title</th><th>Type</th><th>Topic</th><th>Author</th><th>Date</th><th>Actions</th></tr></thead>
+                                <tbody id="admin-archive-tbody"></tbody>
+                            </table>
+                        </div>
+                    </div>
+
+                    <div id="admin-activity" class="admin-section" style="display:none;">
+                        <div class="activity-toolbar">
+                            <div class="activity-range-btns">
+                                <button class="activity-range-btn active" onclick="setActivityRange('today',this)">Today</button>
+                                <button class="activity-range-btn" onclick="setActivityRange('week',this)">This Week</button>
+                                <button class="activity-range-btn" onclick="setActivityRange('month',this)">This Month</button>
+                                <button class="activity-range-btn" onclick="setActivityRange('custom',this)">Custom</button>
+                            </div>
+                            <div class="activity-custom-dates" id="activity-custom-dates" style="display:none;">
+                                <input type="date" id="activity-from">
+                                <span>—</span>
+                                <input type="date" id="activity-to">
+                                <button onclick="loadAdminActivity()" class="activity-apply-btn">Apply</button>
+                            </div>
+                            <select id="activity-dept-filter" onchange="loadAdminActivity()">
+                                <option value="all">All Departments</option>
+                                <option value="Product Export">Product Export</option>
+                                <option value="Startup Ecosystem">Startup Ecosystem</option>
+                                <option value="Western Markets">Western Markets</option>
+                                <option value="Eastern Markets">Eastern Markets</option>
+                                <option value="GovTech">GovTech</option>
+                                <option value="Venture Capital">Venture Capital</option>
+                                <option value="Analytics">Analytics</option>
+                                <option value="BPO Monitoring">BPO Monitoring</option>
+                                <option value="Residents Relations">Residents Relations</option>
+                                <option value="Residents Registration">Residents Registration</option>
+                                <option value="Residents Monitoring">Residents Monitoring</option>
+                                <option value="Softlanding">Softlanding</option>
+                                <option value="Legal Ecosystem">Legal Ecosystem</option>
+                                <option value="AI Infrastructure">AI Infrastructure</option>
+                                <option value="AI Research">AI Research</option>
+                                <option value="Inclusive Projects">Inclusive Projects</option>
+                                <option value="Regional Development">Regional Development</option>
+                                <option value="Freelancers & Youth">Freelancers & Youth</option>
+                                <option value="Infrastructure">Infrastructure</option>
+                                <option value="Infrastructure Dev">Infrastructure Dev</option>
+                                <option value="PPP Investors">PPP Investors</option>
+                                <option value="IT Outsourcing">IT Outsourcing</option>
+                                <option value="Global Marketing">Global Marketing</option>
+                                <option value="Multimedia">Multimedia</option>
+                                <option value="Public Relations">Public Relations</option>
+                                <option value="Marketing">Marketing</option>
+                                <option value="Event Management">Event Management</option>
+                            </select>
+                            <button onclick="exportActivityCSV()" class="activity-export-btn" title="Export CSV">
+                                <i class="fa-solid fa-download"></i> Export
+                            </button>
+                        </div>
+                        <div id="activity-stats-bar" class="admin-stats-bar"></div>
+                        <div class="admin-table-wrap">
+                            <table class="admin-table" id="activity-table">
+                                <thead>
+                                    <tr>
+                                        <th class="sortable-th" onclick="sortActivityTable('name')">User <i class="fa-solid fa-sort"></i></th>
+                                        <th class="sortable-th" onclick="sortActivityTable('department')">Department <i class="fa-solid fa-sort"></i></th>
+                                        <th class="sortable-th" onclick="sortActivityTable('calls')">Calls <i class="fa-solid fa-sort"></i></th>
+                                        <th class="sortable-th" onclick="sortActivityTable('items_added')">Items <i class="fa-solid fa-sort"></i></th>
+                                        <th class="sortable-th" onclick="sortActivityTable('items_completed')">Done <i class="fa-solid fa-sort"></i></th>
+                                        <th class="sortable-th" onclick="sortActivityTable('notes')">Notes <i class="fa-solid fa-sort"></i></th>
+                                        <th class="sortable-th" onclick="sortActivityTable('articles_saved')">Saved <i class="fa-solid fa-sort"></i></th>
+                                        <th class="sortable-th" onclick="sortActivityTable('total_actions')">Total <i class="fa-solid fa-sort"></i></th>
+                                    </tr>
+                                </thead>
+                                <tbody id="activity-tbody"></tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Workspace (department tools) -->
+                <div id="workspace-container" class="tab-content" style="display:none;">
+                    <div id="workspace-header" class="workspace-header"></div>
+                    <div id="workspace-metrics" class="workspace-metrics"></div>
+                    <div id="workspace-widgets" class="workspace-grid"></div>
+                </div>
+
+                <!-- Add/Edit Item Modal -->
+                <div id="workspace-modal" class="workspace-modal" style="display:none;">
+                    <div class="workspace-modal-content">
+                        <div class="workspace-modal-header">
+                            <h3 id="workspace-modal-title">Add Item</h3>
+                            <button onclick="closeWorkspaceModal()" class="workspace-modal-close">&times;</button>
+                        </div>
+                        <form id="workspace-item-form" onsubmit="saveTrackedItem(event)">
+                            <input type="hidden" id="ws-item-id" value="">
+                            <input type="hidden" id="ws-item-type" value="">
+                            <div class="ws-form-group">
+                                <label>Title</label>
+                                <input type="text" id="ws-item-title" required placeholder="Enter title...">
+                            </div>
+                            <div class="ws-form-group">
+                                <label>Description</label>
+                                <textarea id="ws-item-desc" rows="3" placeholder="Details..."></textarea>
+                            </div>
+                            <div class="ws-form-group">
+                                <label>Status</label>
+                                <select id="ws-item-status">
+                                    <option value="active">Active</option>
+                                    <option value="completed">Completed</option>
+                                    <option value="archived">Archived</option>
+                                </select>
+                            </div>
+                            <div id="ws-meta-fields"></div>
+                            <div class="ws-form-actions">
+                                <button type="button" onclick="closeWorkspaceModal()" class="ws-btn-cancel">Cancel</button>
+                                <button type="submit" class="ws-btn-save">Save</button>
+                            </div>
+                        </form>
+                    </div>
                 </div>
 
                 <div id="load-more-container">
@@ -291,6 +589,81 @@
                 </div>
 
             </section>
+        </div>
+    </div>
+
+    <!-- Settings Panel -->
+    <div id="settings-overlay" class="settings-overlay" onclick="closeSettingsOnOverlay(event)">
+        <div class="settings-panel" onclick="event.stopPropagation()">
+            <div class="settings-header">
+                <h3><i class="fa-solid fa-gear"></i> Settings</h3>
+                <button class="settings-close-btn" onclick="closeSettings()">&times;</button>
+            </div>
+            <div class="settings-body">
+                <div class="settings-section">
+                    <div class="settings-section-title">Profile Photo</div>
+                    <div class="settings-avatar-area">
+                        <img id="settings-avatar-preview" src="" class="settings-avatar-preview" alt="Avatar">
+                        <label class="settings-avatar-btn">
+                            <i class="fa-solid fa-camera"></i> Change Photo
+                            <input type="file" id="settings-avatar-input" accept="image/*" style="display:none;" onchange="handleAvatarUpload(this)">
+                        </label>
+                    </div>
+                </div>
+                <div class="settings-section">
+                    <div class="settings-section-title">Profile Information</div>
+                    <input type="text" id="settings-name" class="settings-input" placeholder="Your Name">
+                    <select id="settings-dept" class="settings-select">
+                        <option value="Product Export">Product Export Development</option>
+                        <option value="Startup Ecosystem">Startup Ecosystem Development</option>
+                        <option value="Western Markets">Software Companies — Western Markets</option>
+                        <option value="Eastern Markets">Software Companies — Eastern Markets</option>
+                        <option value="GovTech">GovTech Solutions Development</option>
+                        <option value="Venture Capital">Venture Capital Attraction</option>
+                        <option value="Analytics">Information Consolidation and Analytics</option>
+                        <option value="BPO Monitoring">BPO Companies Monitoring</option>
+                        <option value="Residents Relations">Residents Relations</option>
+                        <option value="Residents Registration">Residents Registration</option>
+                        <option value="Residents Monitoring">Residents Monitoring</option>
+                        <option value="Softlanding">Softlanding</option>
+                        <option value="Legal Ecosystem">Legal Ecosystem Development</option>
+                        <option value="AI Infrastructure">AI Infrastructure Development</option>
+                        <option value="AI Research">AI Research and Training</option>
+                        <option value="Inclusive Projects">Inclusive Projects and Women's Entrepreneurship</option>
+                        <option value="Regional Development">Regional Development</option>
+                        <option value="Freelancers & Youth">Freelancers & Youth in IT</option>
+                        <option value="Infrastructure">Infrastructure and Construction Projects</option>
+                        <option value="Infrastructure Dev">Infrastructure Development</option>
+                        <option value="PPP Investors">Public-Private Partnership Investor Attraction</option>
+                        <option value="IT Outsourcing">IT Outsourcing and Shared Services</option>
+                        <option value="Global Marketing">Global Marketing and Public Relations</option>
+                        <option value="Multimedia">Multimedia</option>
+                        <option value="Public Relations">Public Relations</option>
+                        <option value="Marketing">Marketing</option>
+                        <option value="Event Management">Event Management</option>
+                    </select>
+                    <button onclick="saveProfile()" class="settings-save-btn">
+                        <i class="fa-solid fa-floppy-disk"></i> Save Profile
+                    </button>
+                    <div id="settings-profile-status" class="settings-status"></div>
+                </div>
+                <div class="settings-section">
+                    <div class="settings-section-title">Appearance</div>
+                    <div class="settings-switch-row" style="margin-bottom: 16px;">
+                        <span class="settings-switch-label"><i class="fa-solid fa-moon"></i> Dark Mode</span>
+                        <label class="toggle-switch">
+                            <input type="checkbox" id="settings-dark-toggle" onchange="toggleDarkMode(this.checked)">
+                            <span class="toggle-slider"></span>
+                        </label>
+                    </div>
+                    <div class="settings-section-title" style="margin-top: 8px;">Font Size</div>
+                    <div class="settings-toggle-group">
+                        <button onclick="setFontSize('small')" id="font-btn-small">A<small>-</small></button>
+                        <button onclick="setFontSize('medium')" id="font-btn-medium" class="active">A</button>
+                        <button onclick="setFontSize('large')" id="font-btn-large">A<small>+</small></button>
+                    </div>
+                </div>
+            </div>
         </div>
     </div>
 

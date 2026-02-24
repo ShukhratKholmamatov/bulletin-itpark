@@ -102,8 +102,100 @@ function initializeTables() {
             author TEXT,
             doc_type TEXT DEFAULT 'article',
             source_url TEXT,
+            file_name TEXT,
+            file_path TEXT,
             created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
             updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        )`);
+
+        // Add file columns if they don't exist (migration for existing DBs)
+        db.run(`ALTER TABLE research_archive ADD COLUMN file_name TEXT`, () => {});
+        db.run(`ALTER TABLE research_archive ADD COLUMN file_path TEXT`, () => {});
+
+        // 6. WORKSPACE TRACKED ITEMS
+        db.run(`CREATE TABLE IF NOT EXISTS workspace_tracked_items (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id TEXT NOT NULL,
+            department TEXT NOT NULL,
+            item_type TEXT NOT NULL,
+            title TEXT NOT NULL,
+            description TEXT,
+            status TEXT DEFAULT 'active',
+            metadata TEXT,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY(user_id) REFERENCES users(id)
+        )`);
+
+        // 7. WORKSPACE NOTES
+        db.run(`CREATE TABLE IF NOT EXISTS workspace_notes (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            tracked_item_id INTEGER,
+            user_id TEXT NOT NULL,
+            content TEXT NOT NULL,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY(tracked_item_id) REFERENCES workspace_tracked_items(id),
+            FOREIGN KEY(user_id) REFERENCES users(id)
+        )`);
+
+        // 8. SPRAVOCHNIK (department knowledge base / call scripts)
+        db.run(`CREATE TABLE IF NOT EXISTS spravochnik (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            department TEXT NOT NULL,
+            category TEXT NOT NULL,
+            title TEXT NOT NULL,
+            content TEXT NOT NULL,
+            created_by TEXT,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY(created_by) REFERENCES users(id)
+        )`);
+
+        // 9. OFFICE DIRECTORY
+        db.run(`CREATE TABLE IF NOT EXISTS office_directory (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            provider TEXT NOT NULL,
+            name TEXT NOT NULL,
+            city TEXT NOT NULL,
+            address TEXT,
+            capacity TEXT,
+            price_range TEXT,
+            amenities TEXT,
+            contact_phone TEXT,
+            contact_email TEXT,
+            website TEXT,
+            status TEXT DEFAULT 'available',
+            notes TEXT,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        )`, () => seedOffices());
+
+        // 10. CALL LOG (for tracking client outreach)
+        db.run(`CREATE TABLE IF NOT EXISTS call_log (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id TEXT NOT NULL,
+            lead_name TEXT NOT NULL,
+            company_name TEXT,
+            phone TEXT,
+            email TEXT,
+            call_result TEXT NOT NULL,
+            interest_level TEXT DEFAULT 'medium',
+            preferred_office TEXT,
+            notes TEXT,
+            follow_up_date TEXT,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY(user_id) REFERENCES users(id)
+        )`);
+
+        // 11. AI SUMMARY CACHE
+        db.run(`CREATE TABLE IF NOT EXISTS ai_summary_cache (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            cache_key TEXT UNIQUE NOT NULL,
+            department TEXT NOT NULL,
+            summary_type TEXT NOT NULL,
+            content TEXT NOT NULL,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            expires_at DATETIME NOT NULL
         )`);
     });
 }
@@ -152,6 +244,249 @@ function seedStats() {
         data.forEach(item => stmt.run(item.c, item.cn, item.e, item.m, item.v, item.s, item.u));
         stmt.finalize();
         console.log("✅ Stats Data Seeded");
+    });
+}
+
+function seedOffices() {
+    db.get("SELECT count(*) as count FROM office_directory", (err, row) => {
+        if (err || row.count > 0) return;
+        const offices = [
+            // IT Park
+            { provider: 'IT Park', name: 'IT Park HQ — Tashkent', city: 'Tashkent', address: 'Shahrisabz str. 6, Tashkent', capacity: '50+ offices, coworking, conference halls', price_range: 'Subsidized for residents', amenities: 'High-speed internet, meeting rooms, event space, cafeteria, 24/7 access', contact_phone: '+998 71 200 0300', contact_email: 'info@it-park.uz', website: 'https://it-park.uz', status: 'available', notes: 'Main headquarters. Priority allocation for new residents.' },
+            { provider: 'IT Park', name: 'IT Park — Samarkand', city: 'Samarkand', address: 'Samarkand city', capacity: '20+ offices', price_range: 'Subsidized for residents', amenities: 'Coworking, meeting rooms, internet', contact_phone: '+998 71 200 0300', contact_email: 'info@it-park.uz', website: 'https://it-park.uz', status: 'available', notes: 'Regional branch.' },
+            { provider: 'IT Park', name: 'IT Park — Nukus', city: 'Nukus', address: 'Nukus city', capacity: '15+ offices', price_range: 'Subsidized for residents', amenities: 'Coworking, meeting rooms, internet', contact_phone: '+998 71 200 0300', contact_email: 'info@it-park.uz', website: 'https://it-park.uz', status: 'available', notes: 'Regional branch.' },
+            { provider: 'IT Park', name: 'IT Park — Bukhara', city: 'Bukhara', address: 'Bukhara city', capacity: '15+ offices', price_range: 'Subsidized for residents', amenities: 'Coworking, meeting rooms, internet', contact_phone: '+998 71 200 0300', contact_email: 'info@it-park.uz', website: 'https://it-park.uz', status: 'available', notes: 'Regional branch.' },
+
+            // CSpace
+            { provider: 'CSpace', name: 'CSpace Coworking — Tashkent', city: 'Tashkent', address: 'Amir Temur str., Tashkent', capacity: '100+ desks, private offices, meeting rooms', price_range: '$150-500/month', amenities: 'High-speed WiFi, lounge, kitchen, printers, event space, community events', contact_phone: '+998 90 123 4567', contact_email: 'hello@cspace.uz', website: 'https://cspace.uz', status: 'available', notes: 'Modern coworking, popular with startups and freelancers.' },
+
+            // Shakespeare
+            { provider: 'Shakespeare', name: 'Shakespeare Coworking', city: 'Tashkent', address: 'Mirzo Ulugbek district, Tashkent', capacity: '60+ desks, private offices', price_range: '$100-400/month', amenities: 'WiFi, meeting rooms, coffee bar, lounge area, printing', contact_phone: '+998 90 765 4321', contact_email: 'info@shakespeare.uz', website: 'https://shakespeare.uz', status: 'available', notes: 'Creative atmosphere, good for small teams.' },
+
+            // Ground Zero
+            { provider: 'Ground Zero', name: 'Ground Zero — Tashkent', city: 'Tashkent', address: 'Shota Rustaveli str., Tashkent', capacity: '80+ desks, offices, event hall', price_range: '$120-450/month', amenities: 'High-speed internet, conference rooms, phone booths, kitchen, 24/7 access', contact_phone: '+998 90 987 6543', contact_email: 'info@groundzero.uz', website: 'https://groundzero.uz', status: 'available', notes: 'Tech-focused coworking, hosts hackathons and meetups.' }
+        ];
+
+        const stmt = db.prepare("INSERT INTO office_directory (provider, name, city, address, capacity, price_range, amenities, contact_phone, contact_email, website, status, notes) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
+        offices.forEach(o => stmt.run(o.provider, o.name, o.city, o.address, o.capacity, o.price_range, o.amenities, o.contact_phone, o.contact_email, o.website, o.status, o.notes));
+        stmt.finalize();
+        console.log("✅ Office Directory Seeded");
+    });
+
+    // Also seed default Softlanding spravochnik entries
+    db.get("SELECT count(*) as count FROM spravochnik WHERE department = 'Softlanding'", (err, row) => {
+        if (err || (row && row.count > 0)) return;
+        const entries = [
+            {
+                cat: 'Call Script',
+                title: 'Initial Outreach — New Lead',
+                content: `GREETING:
+"Assalomu alaykum! / Hello! My name is [YOUR NAME], I'm calling from IT Park Uzbekistan, Soft Landing Department. Am I speaking with [LEAD NAME]?"
+
+CONFIRM INTEREST:
+"We received your application regarding becoming an IT Park resident. Thank you for your interest! I'd like to tell you about the benefits and help you with the next steps."
+
+KEY BENEFITS TO MENTION:
+• 0% income tax, 0% property tax, 0% social fund contributions until 2028
+• Simplified visa and work permit process for foreign employees
+• Access to modern office spaces in Tashkent, Samarkand, Nukus, and Bukhara
+• Dedicated account manager for your company
+• Networking with 1,800+ tech companies already resident
+
+OFFICE OPTIONS:
+"We have several office options for you:
+1. IT Park HQ in Tashkent — subsidized offices with full amenities
+2. Partner coworkings: CSpace, Shakespeare, Ground Zero — flexible plans
+3. Regional offices in Samarkand, Bukhara, Nukus"
+
+QUALIFICATION QUESTIONS:
+1. "What type of IT services does your company provide?"
+2. "How many employees do you currently have?"
+3. "When are you looking to start operations in Uzbekistan?"
+4. "Do you need office space or can you operate remotely initially?"
+5. "Are you looking at any specific city in Uzbekistan?"
+
+NEXT STEPS:
+"Based on our conversation, here is what happens next:
+1. I'll send you the registration form and requirements via email
+2. You submit the application with required documents
+3. Our team reviews it within 5-10 business days
+4. Once approved, we help with office setup and work permits"
+
+CLOSING:
+"Do you have any questions? Great, I'll send the details to your email. When would be a good time for a follow-up call?"
+
+NOTE: Always log the call outcome and schedule follow-up!`
+            },
+            {
+                cat: 'Call Script',
+                title: 'Follow-Up Call — Pending Application',
+                content: `GREETING:
+"Hello [LEAD NAME], this is [YOUR NAME] from IT Park Soft Landing. We spoke on [DATE] about your company becoming an IT Park resident."
+
+CHECK STATUS:
+"I'm calling to check if you've had a chance to review the registration materials we sent?"
+
+IF THEY HAVEN'T STARTED:
+"No problem! Would you like me to walk you through the process now? It takes about 10-15 minutes to complete the application."
+
+IF THEY HAVE QUESTIONS:
+"Of course, I'm happy to help. What questions do you have?"
+
+COMMON QUESTIONS TO PREPARE FOR:
+Q: "What documents are needed?"
+A: "Company registration docs, founders' ID copies, description of IT activities, and a brief business plan."
+
+Q: "How long does the approval take?"
+A: "Typically 5-10 business days after submitting a complete application."
+
+Q: "Can we start with remote work?"
+A: "Yes! You can register as a resident and start remotely. Office space can be arranged when you're ready."
+
+Q: "What are the tax benefits?"
+A: "0% income tax, 0% property tax, 0% social fund contributions. This regime is guaranteed until 2028 by Presidential Decree."
+
+PUSH TO ACTION:
+"I can schedule a video call with our registration team to walk you through the application step by step. Would [DAY] at [TIME] work for you?"
+
+CLOSING:
+"Great, I'll send a calendar invite. Looking forward to welcoming your company to IT Park!"
+
+NOTE: Update lead status and set next follow-up date.`
+            },
+            {
+                cat: 'Call Script',
+                title: 'Office Tour Invitation Script',
+                content: `GREETING:
+"Hello [LEAD NAME], this is [YOUR NAME] from IT Park. Congratulations on your application being approved! / I'd like to invite you to see our office spaces."
+
+OFFER TOUR:
+"We'd love to give you a tour of our facilities so you can choose the best space for your team. We have options ranging from hot desks to private offices."
+
+AVAILABLE LOCATIONS:
+1. "IT Park HQ on Shahrisabz — our flagship location with conference halls, event space, and full amenities"
+2. "CSpace — modern coworking on Amir Temur, very popular with startups"
+3. "Shakespeare — creative workspace in Mirzo Ulugbek, great for small teams"
+4. "Ground Zero — tech-focused space on Shota Rustaveli, hosts community events"
+
+SCHEDULE:
+"Tours are available Monday-Friday, 10:00-17:00. Which location interests you most? I can schedule a visit for you."
+
+WHAT TO BRING:
+"For the tour, just bring your ID. If you'd like to sign a lease the same day, bring your company documents."
+
+CLOSING:
+"See you on [DATE] at [TIME]! I'll meet you at reception. Call me if anything changes: [YOUR PHONE]."
+
+NOTE: Log the tour appointment and preferred office in the system.`
+            },
+            {
+                cat: 'FAQ',
+                title: 'Resident Benefits Summary',
+                content: `IT PARK RESIDENT BENEFITS:
+
+TAX ADVANTAGES (until 2028):
+• 0% Corporate Income Tax
+• 0% Property Tax
+• 0% Social Fund contributions (replaced by 1% turnover tax)
+• Reduced personal income tax (7.5%) for employees
+• No customs duties on imported equipment
+
+OPERATIONAL BENEFITS:
+• Simplified visa/work permits for foreign staff
+• Access to subsidized office space
+• Dedicated account manager
+• IT Park brand association — trusted by 1,800+ companies
+• Networking events, hackathons, demo days
+• Government lobbying — IT Park advocates for residents
+
+ELIGIBLE ACTIVITIES (OKED codes):
+• Software development
+• IT consulting
+• Data processing
+• Web/mobile app development
+• AI/ML services
+• Cloud computing services
+• IT education/training
+• E-commerce platform development
+• Game development
+• Cybersecurity services
+
+APPLICATION REQUIREMENTS:
+1. Company must be registered in Uzbekistan (or willing to register)
+2. At least 80% of revenue from IT activities
+3. Application form + business plan
+4. Founders' passport copies
+5. Company charter and registration documents`
+            },
+            {
+                cat: 'FAQ',
+                title: 'Registration Process Step-by-Step',
+                content: `STEP 1: INITIAL APPLICATION
+- Fill out online form at register.it-park.uz
+- Attach required documents (charter, IDs, business plan)
+- Submit for review
+
+STEP 2: PRELIMINARY REVIEW (2-3 days)
+- Soft Landing team checks document completeness
+- May contact you for clarifications
+
+STEP 3: EXPERT COMMISSION REVIEW (5-7 days)
+- Commission evaluates the application
+- Checks OKED codes eligibility
+- Verifies IT activity focus (80% rule)
+
+STEP 4: DECISION
+- Approved: Welcome letter + next steps sent
+- Rejected: Feedback provided, can reapply
+
+STEP 5: ONBOARDING
+- Assign account manager
+- Office space selection (if needed)
+- Work permit assistance (for foreign staff)
+- Introduction to IT Park community
+
+TIMELINE: Total ~10-15 business days from application to onboarding
+
+COMMON REJECTION REASONS:
+• Activity not in eligible OKED list
+• Less than 80% IT revenue
+• Incomplete documents
+• Company already has tax violations`
+            },
+            {
+                cat: 'Procedures',
+                title: 'Lead Follow-Up Schedule',
+                content: `STANDARD FOLLOW-UP PROTOCOL:
+
+DAY 0: Initial contact — introduce IT Park, qualify the lead
+DAY 1: Send welcome email with registration links and benefits PDF
+DAY 3: First follow-up call — check if they reviewed materials
+DAY 7: Second follow-up — offer assistance with application
+DAY 14: Third follow-up — re-engage or mark as "cold"
+DAY 30: Final attempt — special offer or event invitation
+
+LEAD STATUS CATEGORIES:
+• HOT — Actively filling application, needs help
+• WARM — Interested, asked for info, hasn't started yet
+• COLD — No response after 2+ follow-ups
+• CONVERTED — Submitted application
+• RESIDENT — Approved and onboarded
+• LOST — Declined or went elsewhere
+
+PRIORITY RULES:
+1. Always call HOT leads first
+2. Follow-up calls before 12:00 get better response rates
+3. If lead asks for call-back, ALWAYS honor the time
+4. Log every interaction in the call log
+5. Escalate to manager if lead has > $1M annual revenue`
+            }
+        ];
+
+        const stmt = db.prepare("INSERT INTO spravochnik (department, category, title, content, created_by) VALUES (?, ?, ?, ?, ?)");
+        entries.forEach(e => stmt.run('Softlanding', e.cat, e.title, e.content, null));
+        stmt.finalize();
+        console.log("✅ Softlanding Spravochnik Seeded");
     });
 }
 

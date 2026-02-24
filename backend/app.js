@@ -21,7 +21,56 @@ const streamPipeline = promisify(pipeline);
 const swaggerUi = require('swagger-ui-express');
 const YAML = require('yamljs');
 const swaggerDocument = YAML.load(path.join(__dirname, 'swagger.yaml'));
+const multer = require('multer'); // File uploads
+const fs = require('fs');
 
+// --- File Upload Setup ---
+const uploadsDir = path.join(__dirname, 'uploads');
+if (!fs.existsSync(uploadsDir)) {
+    fs.mkdirSync(uploadsDir, { recursive: true });
+    console.log('📁 Created uploads directory:', uploadsDir);
+}
+
+const storage = multer.diskStorage({
+    destination: (req, file, cb) => cb(null, uploadsDir),
+    filename: (req, file, cb) => {
+        const uniqueName = Date.now() + '-' + file.originalname.replace(/[^a-zA-Z0-9._-]/g, '_');
+        cb(null, uniqueName);
+    }
+});
+const upload = multer({
+    storage,
+    limits: { fileSize: 20 * 1024 * 1024 }, // 20MB max
+    fileFilter: (req, file, cb) => {
+        const allowed = ['.pdf', '.doc', '.docx', '.ppt', '.pptx', '.xls', '.xlsx'];
+        const ext = path.extname(file.originalname).toLowerCase();
+        if (allowed.includes(ext)) cb(null, true);
+        else cb(new Error('Only PDF, DOC, DOCX, PPT, PPTX, XLS, XLSX files are allowed'));
+    }
+});
+
+// --- Avatar Upload Setup ---
+const avatarsDir = path.join(__dirname, 'uploads', 'avatars');
+if (!fs.existsSync(avatarsDir)) {
+    fs.mkdirSync(avatarsDir, { recursive: true });
+}
+const avatarStorage = multer.diskStorage({
+    destination: (req, file, cb) => cb(null, avatarsDir),
+    filename: (req, file, cb) => {
+        const ext = path.extname(file.originalname).toLowerCase();
+        cb(null, `avatar-${req.user.id}${ext}`);
+    }
+});
+const avatarUpload = multer({
+    storage: avatarStorage,
+    limits: { fileSize: 2 * 1024 * 1024 },
+    fileFilter: (req, file, cb) => {
+        const allowed = ['.jpg', '.jpeg', '.png', '.gif', '.webp'];
+        const ext = path.extname(file.originalname).toLowerCase();
+        if (allowed.includes(ext)) cb(null, true);
+        else cb(new Error('Only image files (JPG, PNG, GIF, WEBP) are allowed'));
+    }
+});
 
 
 /* =========================
@@ -108,6 +157,10 @@ app.use(passport.session());
 // 5. Static Files (Frontend)
 app.use(express.static(path.join(__dirname, '../frontend')));
 app.use('/img', express.static(path.join(__dirname, '../frontend/img')));
+app.use('/uploads/avatars', express.static(path.join(__dirname, 'uploads', 'avatars')));
+
+// Workspace routes (department-specific tools)
+app.use('/workspace', require('./routes/workspace'));
 
 /* =========================
    🔐 AUTH ROUTES
@@ -162,6 +215,48 @@ app.get('/auth/logout', (req, res) => {
 app.get('/auth/current', (req, res) => {
   if (req.user) return res.json(req.user);
   res.status(401).json({ user: null });
+});
+
+// Update profile (name, department)
+app.put('/auth/profile', (req, res) => {
+    if (!req.user) return res.status(401).json({ error: 'Unauthorized' });
+    const { name, department } = req.body;
+    if (!name || !name.trim()) return res.status(400).json({ error: 'Name is required' });
+
+    const allowedDepts = ['Product Export','Startup Ecosystem','Western Markets','Eastern Markets','GovTech','Venture Capital','Analytics','BPO Monitoring','Residents Relations','Residents Registration','Residents Monitoring','Softlanding','Legal Ecosystem','AI Infrastructure','AI Research','Inclusive Projects','Regional Development','Freelancers & Youth','Infrastructure','Infrastructure Dev','PPP Investors','IT Outsourcing','Global Marketing','Multimedia','Public Relations','Marketing','Event Management'];
+    const dept = allowedDepts.includes(department) ? department : department || 'Analytics';
+
+    db.run(`UPDATE users SET name = ?, department = ? WHERE id = ?`, [name.trim(), dept, req.user.id], function(err) {
+        if (err) return res.status(500).json({ error: err.message });
+        res.json({ success: true, name: name.trim(), department: dept });
+    });
+});
+
+// Upload avatar
+app.post('/auth/avatar', (req, res) => {
+    if (!req.user) return res.status(401).json({ error: 'Unauthorized' });
+
+    avatarUpload.single('avatar')(req, res, (uploadErr) => {
+        if (uploadErr) {
+            if (uploadErr.code === 'LIMIT_FILE_SIZE') return res.status(400).json({ error: 'Image must be under 2MB' });
+            return res.status(400).json({ error: uploadErr.message });
+        }
+        if (!req.file) return res.status(400).json({ error: 'No file uploaded' });
+
+        // Clean up previous avatar files with different extensions
+        const files = fs.readdirSync(avatarsDir);
+        files.forEach(f => {
+            if (f.startsWith(`avatar-${req.user.id}`) && f !== req.file.filename) {
+                try { fs.unlinkSync(path.join(avatarsDir, f)); } catch(e) {}
+            }
+        });
+
+        const photoUrl = `/uploads/avatars/${req.file.filename}`;
+        db.run(`UPDATE users SET photo_url = ? WHERE id = ?`, [photoUrl, req.user.id], function(err) {
+            if (err) return res.status(500).json({ error: err.message });
+            res.json({ success: true, photo_url: photoUrl });
+        });
+    });
 });
 
 /* =========================
@@ -528,7 +623,7 @@ app.get('/nla/live/vn/search', async (req, res) => { res.status(501).json({ erro
 // List all research (with optional topic filter)
 app.get('/archive', (req, res) => {
     const { topic } = req.query;
-    let sql = 'SELECT id, title, topic, summary, author, doc_type, source_url, created_at FROM research_archive';
+    let sql = 'SELECT id, title, topic, summary, author, doc_type, source_url, file_name, created_at FROM research_archive';
     const params = [];
     if (topic) { sql += ' WHERE topic = ?'; params.push(topic); }
     sql += ' ORDER BY created_at DESC';
@@ -547,6 +642,17 @@ app.get('/archive/:id', (req, res) => {
     });
 });
 
+// Download attached file
+app.get('/archive/:id/download', (req, res) => {
+    db.get('SELECT file_name, file_path FROM research_archive WHERE id = ?', [req.params.id], (err, row) => {
+        if (err) return res.status(500).json({ error: err.message });
+        if (!row || !row.file_path) return res.status(404).json({ error: 'No file attached' });
+        const filePath = path.join(uploadsDir, row.file_path);
+        if (!fs.existsSync(filePath)) return res.status(404).json({ error: 'File not found on disk' });
+        res.download(filePath, row.file_name);
+    });
+});
+
 // List all unique topics
 app.get('/archive-topics', (req, res) => {
     db.all('SELECT topic, COUNT(*) as count FROM research_archive GROUP BY topic ORDER BY count DESC', [], (err, rows) => {
@@ -555,35 +661,82 @@ app.get('/archive-topics', (req, res) => {
     });
 });
 
-// Create new research (admin only)
+// Create new research with optional file (admin only)
 app.post('/archive', ensureAdmin, (req, res) => {
-    const { title, topic, summary, content, author, doc_type, source_url } = req.body;
-    if (!title || !topic) return res.status(400).json({ error: 'Title and topic are required' });
+    upload.single('file')(req, res, (uploadErr) => {
+        if (uploadErr) return res.status(400).json({ error: uploadErr.message });
 
-    const sql = `INSERT INTO research_archive (title, topic, summary, content, author, doc_type, source_url) VALUES (?, ?, ?, ?, ?, ?, ?)`;
-    db.run(sql, [title, topic, summary || '', content || '', author || req.user.name, doc_type || 'article', source_url || ''], function(err) {
-        if (err) return res.status(500).json({ error: err.message });
-        res.json({ success: true, id: this.lastID });
+        const { title, topic, summary, content, author, doc_type, source_url } = req.body;
+        if (!title || !topic) return res.status(400).json({ error: 'Title and topic are required' });
+
+        const fileName = req.file ? req.file.originalname : null;
+        const filePath = req.file ? req.file.filename : null;
+
+        const sql = `INSERT INTO research_archive (title, topic, summary, content, author, doc_type, source_url, file_name, file_path) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`;
+        db.run(sql, [title, topic, summary || '', content || '', author || req.user.name, doc_type || 'article', source_url || '', fileName, filePath], function(err) {
+            if (err) return res.status(500).json({ error: err.message });
+            res.json({ success: true, id: this.lastID });
+        });
     });
 });
 
-// Update research (admin only)
+// Update research with optional file (admin only)
 app.put('/archive/:id', ensureAdmin, (req, res) => {
-    const { title, topic, summary, content, author, doc_type, source_url } = req.body;
-    const sql = `UPDATE research_archive SET title=?, topic=?, summary=?, content=?, author=?, doc_type=?, source_url=?, updated_at=CURRENT_TIMESTAMP WHERE id=?`;
-    db.run(sql, [title, topic, summary, content, author, doc_type, source_url, req.params.id], function(err) {
-        if (err) return res.status(500).json({ error: err.message });
-        if (this.changes === 0) return res.status(404).json({ error: 'Not found' });
-        res.json({ success: true });
+    upload.single('file')(req, res, (uploadErr) => {
+        if (uploadErr) return res.status(400).json({ error: uploadErr.message });
+
+        const { title, topic, summary, content, author, doc_type, source_url } = req.body;
+
+        // If a new file is uploaded, delete the old one
+        const handleUpdate = (oldFilePath) => {
+            const fileName = req.file ? req.file.originalname : undefined;
+            const filePath = req.file ? req.file.filename : undefined;
+
+            let sql, params;
+            if (req.file) {
+                sql = `UPDATE research_archive SET title=?, topic=?, summary=?, content=?, author=?, doc_type=?, source_url=?, file_name=?, file_path=?, updated_at=CURRENT_TIMESTAMP WHERE id=?`;
+                params = [title, topic, summary, content, author, doc_type, source_url, fileName, filePath, req.params.id];
+            } else {
+                sql = `UPDATE research_archive SET title=?, topic=?, summary=?, content=?, author=?, doc_type=?, source_url=?, updated_at=CURRENT_TIMESTAMP WHERE id=?`;
+                params = [title, topic, summary, content, author, doc_type, source_url, req.params.id];
+            }
+
+            db.run(sql, params, function(err) {
+                if (err) return res.status(500).json({ error: err.message });
+                if (this.changes === 0) return res.status(404).json({ error: 'Not found' });
+                // Clean up old file if replaced
+                if (req.file && oldFilePath) {
+                    const oldPath = path.join(uploadsDir, oldFilePath);
+                    if (fs.existsSync(oldPath)) fs.unlinkSync(oldPath);
+                }
+                res.json({ success: true });
+            });
+        };
+
+        // Get old file path before updating
+        db.get('SELECT file_path FROM research_archive WHERE id = ?', [req.params.id], (err, row) => {
+            if (err) return res.status(500).json({ error: err.message });
+            handleUpdate(row ? row.file_path : null);
+        });
     });
 });
 
-// Delete research (admin only)
+// Delete research and its file (admin only)
 app.delete('/archive/:id', ensureAdmin, (req, res) => {
-    db.run('DELETE FROM research_archive WHERE id = ?', [req.params.id], function(err) {
+    // Get file path before deleting
+    db.get('SELECT file_path FROM research_archive WHERE id = ?', [req.params.id], (err, row) => {
         if (err) return res.status(500).json({ error: err.message });
-        if (this.changes === 0) return res.status(404).json({ error: 'Not found' });
-        res.json({ success: true });
+
+        db.run('DELETE FROM research_archive WHERE id = ?', [req.params.id], function(delErr) {
+            if (delErr) return res.status(500).json({ error: delErr.message });
+            if (this.changes === 0) return res.status(404).json({ error: 'Not found' });
+            // Clean up file from disk
+            if (row && row.file_path) {
+                const filePath = path.join(uploadsDir, row.file_path);
+                if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
+            }
+            res.json({ success: true });
+        });
     });
 });
 
@@ -596,11 +749,20 @@ app.get('/news', async (req, res) => {
 
     try {
         const promises = [];
-        let searchQuery = keyword || topic || 'Technology';
-        if (country === 'uz') searchQuery += ' Uzbekistan';
-        if (country === 'kz') searchQuery += ' Kazakhstan';
 
-        const googleGeo = country && ['us','gb','in'].includes(country) ? `&gl=${country.toUpperCase()}&ceid=${country.toUpperCase()}:en` : '&gl=US&ceid=US:en';
+        // Build a combined search query from all active filters
+        const queryParts = [];
+        if (keyword) queryParts.push(keyword);
+        if (topic) queryParts.push(topic);
+        if (department) queryParts.push(department);
+
+        // Map country codes to names for better search results
+        const countryNames = { us: 'USA', gb: 'United Kingdom', in: 'India', de: 'Germany', kr: 'South Korea', jp: 'Japan', ru: 'Russia', kz: 'Kazakhstan', uz: 'Uzbekistan' };
+        if (country && countryNames[country]) queryParts.push(countryNames[country]);
+
+        let searchQuery = queryParts.length ? queryParts.join(' ') : 'Technology';
+
+        const googleGeo = country && ['us','gb','in','de','kr','jp','ru'].includes(country) ? `&gl=${country.toUpperCase()}&ceid=${country.toUpperCase()}:en` : '&gl=US&ceid=US:en';
         const googleUrl = `https://news.google.com/rss/search?q=${encodeURIComponent(searchQuery)}&hl=en-US${googleGeo}`;
 
         promises.push(parser.parseURL(googleUrl).then(feed => feed.items.map(item => {
@@ -997,6 +1159,263 @@ app.post('/news/report', async (req, res) => {
     }
 });
 
+/* =========================
+   🛡️ ADMIN PANEL API
+========================= */
+
+// Dashboard overview stats
+app.get('/admin/dashboard', ensureAdmin, (req, res) => {
+    const result = {};
+    db.get("SELECT COUNT(*) as count FROM users", (err, row) => {
+        result.totalUsers = row ? row.count : 0;
+        db.get("SELECT COUNT(*) as count FROM saved_news", (err2, row2) => {
+            result.totalSaved = row2 ? row2.count : 0;
+            db.get("SELECT COUNT(*) as count FROM research_archive", (err3, row3) => {
+                result.totalResearch = row3 ? row3.count : 0;
+                db.get("SELECT COUNT(*) as count FROM users WHERE created_at >= date('now', '-7 days')", (err4, row4) => {
+                    result.recentUsers = row4 ? row4.count : 0;
+                    db.all("SELECT department, COUNT(*) as count FROM users GROUP BY department ORDER BY count DESC", (err5, rows) => {
+                        result.usersByDept = rows || [];
+                        res.json(result);
+                    });
+                });
+            });
+        });
+    });
+});
+
+// List all users with search/filter
+app.get('/admin/users', ensureAdmin, (req, res) => {
+    const { search, department, role } = req.query;
+    let sql = "SELECT id, email, name, photo_url, department, role, created_at FROM users WHERE 1=1";
+    const params = [];
+
+    if (search) {
+        sql += " AND (name LIKE ? OR email LIKE ?)";
+        params.push(`%${search}%`, `%${search}%`);
+    }
+    if (department) {
+        sql += " AND department = ?";
+        params.push(department);
+    }
+    if (role) {
+        sql += " AND role = ?";
+        params.push(role);
+    }
+
+    sql += " ORDER BY created_at DESC";
+
+    db.all(sql, params, (err, rows) => {
+        if (err) return res.status(500).json({ error: err.message });
+        res.json({ users: rows || [], total: (rows || []).length });
+    });
+});
+
+// Change user role
+app.put('/admin/users/:id/role', ensureAdmin, (req, res) => {
+    const { role } = req.body;
+    const validRoles = ['admin', 'viewer'];
+    if (!validRoles.includes(role)) {
+        return res.status(400).json({ error: 'Invalid role. Must be "admin" or "viewer".' });
+    }
+    if (req.user.id === req.params.id) {
+        return res.status(400).json({ error: 'You cannot change your own role.' });
+    }
+    db.run("UPDATE users SET role = ? WHERE id = ?", [role, req.params.id], function(err) {
+        if (err) return res.status(500).json({ error: err.message });
+        if (this.changes === 0) return res.status(404).json({ error: 'User not found.' });
+        res.json({ success: true, id: req.params.id, role });
+    });
+});
+
+// Change user department
+app.put('/admin/users/:id/department', ensureAdmin, (req, res) => {
+    const { department } = req.body;
+    const validDepts = ['Product Export','Startup Ecosystem','Western Markets','Eastern Markets','GovTech','Venture Capital','Analytics','BPO Monitoring','Residents Relations','Residents Registration','Residents Monitoring','Softlanding','Legal Ecosystem','AI Infrastructure','AI Research','Inclusive Projects','Regional Development','Freelancers & Youth','Infrastructure','Infrastructure Dev','PPP Investors','IT Outsourcing','Global Marketing','Multimedia','Public Relations','Marketing','Event Management'];
+    if (!validDepts.includes(department)) {
+        return res.status(400).json({ error: 'Invalid department.' });
+    }
+    db.run("UPDATE users SET department = ? WHERE id = ?", [department, req.params.id], function(err) {
+        if (err) return res.status(500).json({ error: err.message });
+        if (this.changes === 0) return res.status(404).json({ error: 'User not found.' });
+        res.json({ success: true, id: req.params.id, department });
+    });
+});
+
+// Delete user
+app.delete('/admin/users/:id', ensureAdmin, (req, res) => {
+    const userId = req.params.id;
+    if (String(req.user.id) === String(userId)) {
+        return res.status(400).json({ error: 'You cannot delete your own account.' });
+    }
+    db.get("SELECT id, name, email FROM users WHERE id = ?", [userId], (err, user) => {
+        if (err) return res.status(500).json({ error: err.message });
+        if (!user) return res.status(404).json({ error: 'User not found.' });
+        db.run("DELETE FROM saved_news WHERE user_id = ?", [userId], (err2) => {
+            db.run("DELETE FROM users WHERE id = ?", [userId], function(err3) {
+                if (err3) return res.status(500).json({ error: err3.message });
+                res.json({ success: true, message: `User ${user.name || user.email} deleted.` });
+            });
+        });
+    });
+});
+
+// Content overview stats
+app.get('/admin/content', ensureAdmin, (req, res) => {
+    const result = {};
+    db.all("SELECT doc_type, COUNT(*) as count FROM research_archive GROUP BY doc_type ORDER BY count DESC", (err, rows) => {
+        result.researchByType = rows || [];
+        db.all("SELECT topic, COUNT(*) as count FROM research_archive GROUP BY topic ORDER BY count DESC", (err2, rows2) => {
+            result.researchByTopic = rows2 || [];
+            db.all(`SELECT news_id, title, source, url, COUNT(*) as save_count
+                    FROM saved_news GROUP BY news_id
+                    ORDER BY save_count DESC LIMIT 10`, (err3, rows3) => {
+                result.popularArticles = rows3 || [];
+                res.json(result);
+            });
+        });
+    });
+});
+
+// List all archive documents for admin
+app.get('/admin/archive', ensureAdmin, (req, res) => {
+    const search = req.query.search || '';
+    let sql = 'SELECT id, title, topic, author, doc_type, created_at FROM research_archive';
+    const params = [];
+    if (search) {
+        sql += ' WHERE title LIKE ? OR topic LIKE ? OR author LIKE ?';
+        const s = `%${search}%`;
+        params.push(s, s, s);
+    }
+    sql += ' ORDER BY created_at DESC';
+    db.all(sql, params, (err, rows) => {
+        if (err) return res.status(500).json({ error: err.message });
+        res.json({ archives: rows || [] });
+    });
+});
+
+// Delete saved article (removes from all users)
+app.delete('/admin/articles/:newsId', ensureAdmin, (req, res) => {
+    const newsId = req.params.newsId;
+    db.run("DELETE FROM saved_news WHERE news_id = ?", [newsId], function(err) {
+        if (err) return res.status(500).json({ error: err.message });
+        if (this.changes === 0) return res.status(404).json({ error: 'Article not found.' });
+        res.json({ success: true, deleted: this.changes });
+    });
+});
+
+// ── Admin Activity KPI ──
+app.get('/admin/activity', ensureAdmin, (req, res) => {
+    const { range, from, to, dept } = req.query;
+    let dateFrom;
+    const now = new Date();
+    if (range === 'week') {
+        const d = new Date(now); d.setDate(d.getDate() - 7);
+        dateFrom = d.toISOString();
+    } else if (range === 'month') {
+        const d = new Date(now); d.setMonth(d.getMonth() - 1);
+        dateFrom = d.toISOString();
+    } else if (range === 'custom' && from) {
+        dateFrom = new Date(from).toISOString();
+    } else {
+        // Default: today
+        dateFrom = new Date(now.getFullYear(), now.getMonth(), now.getDate()).toISOString();
+    }
+    const dateTo = (range === 'custom' && to) ? new Date(to + 'T23:59:59').toISOString() : now.toISOString();
+
+    const deptFilter = dept && dept !== 'all' ? dept : null;
+
+    const sql = `
+        SELECT u.id, u.name, u.email, u.photo_url, u.department,
+            (SELECT COUNT(*) FROM call_log WHERE user_id=u.id AND created_at >= ? AND created_at <= ?) as calls,
+            (SELECT COUNT(*) FROM workspace_tracked_items WHERE user_id=u.id AND created_at >= ? AND created_at <= ?) as items_added,
+            (SELECT COUNT(*) FROM workspace_tracked_items WHERE user_id=u.id AND status='completed' AND updated_at >= ? AND updated_at <= ?) as items_completed,
+            (SELECT COUNT(*) FROM workspace_notes WHERE user_id=u.id AND created_at >= ? AND created_at <= ?) as notes,
+            (SELECT COUNT(*) FROM saved_news WHERE user_id=u.id AND saved_at >= ? AND saved_at <= ?) as articles_saved,
+            (SELECT COUNT(*) FROM spravochnik WHERE created_by=u.id AND created_at >= ? AND created_at <= ?) as spravochnik_entries
+        FROM users u
+        ${deptFilter ? "WHERE u.department = ?" : ""}
+        ORDER BY u.name
+    `;
+    const params = [
+        dateFrom, dateTo, dateFrom, dateTo, dateFrom, dateTo,
+        dateFrom, dateTo, dateFrom, dateTo, dateFrom, dateTo
+    ];
+    if (deptFilter) params.push(deptFilter);
+
+    db.all(sql, params, (err, rows) => {
+        if (err) return res.status(500).json({ error: err.message });
+
+        const users = rows.map(r => ({
+            ...r,
+            total_actions: r.calls + r.items_added + r.items_completed + r.notes + r.articles_saved + r.spravochnik_entries
+        }));
+        users.sort((a, b) => b.total_actions - a.total_actions);
+
+        const activeUsers = users.filter(u => u.total_actions > 0);
+        const totalActions = users.reduce((s, u) => s + u.total_actions, 0);
+        const summary = {
+            total_actions: totalActions,
+            most_active_user: activeUsers.length ? activeUsers[0].name : 'N/A',
+            avg_actions: users.length ? (totalActions / users.length).toFixed(1) : '0',
+            active_users_count: activeUsers.length
+        };
+
+        res.json({ users, summary });
+    });
+});
+
+app.get('/admin/activity/export', ensureAdmin, (req, res) => {
+    const { range, from, to, dept } = req.query;
+    let dateFrom;
+    const now = new Date();
+    if (range === 'week') {
+        const d = new Date(now); d.setDate(d.getDate() - 7);
+        dateFrom = d.toISOString();
+    } else if (range === 'month') {
+        const d = new Date(now); d.setMonth(d.getMonth() - 1);
+        dateFrom = d.toISOString();
+    } else if (range === 'custom' && from) {
+        dateFrom = new Date(from).toISOString();
+    } else {
+        dateFrom = new Date(now.getFullYear(), now.getMonth(), now.getDate()).toISOString();
+    }
+    const dateTo = (range === 'custom' && to) ? new Date(to + 'T23:59:59').toISOString() : now.toISOString();
+    const deptFilter = dept && dept !== 'all' ? dept : null;
+
+    const sql = `
+        SELECT u.name, u.email, u.department,
+            (SELECT COUNT(*) FROM call_log WHERE user_id=u.id AND created_at >= ? AND created_at <= ?) as calls,
+            (SELECT COUNT(*) FROM workspace_tracked_items WHERE user_id=u.id AND created_at >= ? AND created_at <= ?) as items_added,
+            (SELECT COUNT(*) FROM workspace_tracked_items WHERE user_id=u.id AND status='completed' AND updated_at >= ? AND updated_at <= ?) as items_completed,
+            (SELECT COUNT(*) FROM workspace_notes WHERE user_id=u.id AND created_at >= ? AND created_at <= ?) as notes,
+            (SELECT COUNT(*) FROM saved_news WHERE user_id=u.id AND saved_at >= ? AND saved_at <= ?) as articles_saved,
+            (SELECT COUNT(*) FROM spravochnik WHERE created_by=u.id AND created_at >= ? AND created_at <= ?) as spravochnik_entries
+        FROM users u
+        ${deptFilter ? "WHERE u.department = ?" : ""}
+        ORDER BY u.name
+    `;
+    const params = [
+        dateFrom, dateTo, dateFrom, dateTo, dateFrom, dateTo,
+        dateFrom, dateTo, dateFrom, dateTo, dateFrom, dateTo
+    ];
+    if (deptFilter) params.push(deptFilter);
+
+    db.all(sql, params, (err, rows) => {
+        if (err) return res.status(500).json({ error: err.message });
+
+        let csv = 'Name,Email,Department,Calls,Items Added,Items Completed,Notes,Articles Saved,Spravochnik,Total\n';
+        rows.forEach(r => {
+            const total = r.calls + r.items_added + r.items_completed + r.notes + r.articles_saved + r.spravochnik_entries;
+            csv += `"${r.name}","${r.email}","${r.department}",${r.calls},${r.items_added},${r.items_completed},${r.notes},${r.articles_saved},${r.spravochnik_entries},${total}\n`;
+        });
+
+        res.setHeader('Content-Type', 'text/csv');
+        res.setHeader('Content-Disposition', `attachment; filename="activity_${range || 'today'}_${new Date().toISOString().split('T')[0]}.csv"`);
+        res.send(csv);
+    });
+});
+
 // Admin Maker (protected — only existing admins can promote users)
 app.get('/make-me-admin', ensureAdmin, (req, res) => {
     const email = req.query.email;
@@ -1014,6 +1433,18 @@ app.get('/', (req, res) => {
 });
 
 app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(swaggerDocument));
+
+// Multer error handler (file too large, wrong type, etc.)
+app.use((err, req, res, next) => {
+    if (err instanceof multer.MulterError) {
+        return res.status(400).json({ error: err.message });
+    }
+    if (err && err.message && err.message.includes('Only PDF')) {
+        return res.status(400).json({ error: err.message });
+    }
+    next(err);
+});
+
 // ----------------------------------------------------
 // 🚀 VERCEL CONFIGURATION (Keep this at the bottom)
 // ----------------------------------------------------
