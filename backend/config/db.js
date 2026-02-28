@@ -55,6 +55,11 @@ function initializeTables() {
             created_at DATETIME DEFAULT CURRENT_TIMESTAMP
         )`);
 
+        // Migration: add google_id column if missing
+        db.run(`ALTER TABLE users ADD COLUMN google_id TEXT`, (err) => {
+            // ignore "duplicate column" error — means it already exists
+        });
+
         // 2. SAVED NEWS TABLE
         db.run(`CREATE TABLE IF NOT EXISTS saved_news (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -92,27 +97,7 @@ function initializeTables() {
             metric_name TEXT, metric_value TEXT, source TEXT, url TEXT
         )`, () => seedStats());
 
-        // 5. RESEARCH ARCHIVE TABLE
-        db.run(`CREATE TABLE IF NOT EXISTS research_archive (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            title TEXT NOT NULL,
-            topic TEXT NOT NULL,
-            summary TEXT,
-            content TEXT,
-            author TEXT,
-            doc_type TEXT DEFAULT 'article',
-            source_url TEXT,
-            file_name TEXT,
-            file_path TEXT,
-            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-            updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
-        )`);
-
-        // Add file columns if they don't exist (migration for existing DBs)
-        db.run(`ALTER TABLE research_archive ADD COLUMN file_name TEXT`, () => {});
-        db.run(`ALTER TABLE research_archive ADD COLUMN file_path TEXT`, () => {});
-
-        // 6. WORKSPACE TRACKED ITEMS
+        // 5. WORKSPACE TRACKED ITEMS
         db.run(`CREATE TABLE IF NOT EXISTS workspace_tracked_items (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             user_id TEXT NOT NULL,
@@ -196,6 +181,59 @@ function initializeTables() {
             content TEXT NOT NULL,
             created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
             expires_at DATETIME NOT NULL
+        )`);
+
+        // 12. ANNOUNCEMENTS TABLE (HR → all users)
+        db.run(`CREATE TABLE IF NOT EXISTS announcements (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            title TEXT NOT NULL,
+            content TEXT NOT NULL,
+            image_url TEXT,
+            created_by TEXT NOT NULL,
+            department TEXT DEFAULT 'HR',
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY(created_by) REFERENCES users(id)
+        )`);
+
+        // 13. ANNOUNCEMENT READ TRACKING
+        db.run(`CREATE TABLE IF NOT EXISTS announcement_reads (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            announcement_id INTEGER NOT NULL,
+            user_id TEXT NOT NULL,
+            read_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE(announcement_id, user_id),
+            FOREIGN KEY(announcement_id) REFERENCES announcements(id),
+            FOREIGN KEY(user_id) REFERENCES users(id)
+        )`);
+
+        // 14. TASKS TABLE (head → viewer task assignment)
+        db.run(`CREATE TABLE IF NOT EXISTS tasks (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            title TEXT NOT NULL,
+            description TEXT,
+            assigned_to TEXT NOT NULL,
+            assigned_by TEXT NOT NULL,
+            department TEXT NOT NULL,
+            priority TEXT DEFAULT 'medium',
+            status TEXT DEFAULT 'pending',
+            deadline TEXT,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY(assigned_to) REFERENCES users(id),
+            FOREIGN KEY(assigned_by) REFERENCES users(id)
+        )`);
+
+        // 15. CHAT MESSAGES TABLE (personal 1-on-1) — migrate from old department schema
+        db.run(`DROP TABLE IF EXISTS chat_messages`);
+        db.run(`CREATE TABLE IF NOT EXISTS chat_messages (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            sender_id TEXT NOT NULL,
+            receiver_id TEXT NOT NULL,
+            message TEXT NOT NULL,
+            is_read INTEGER DEFAULT 0,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY(sender_id) REFERENCES users(id),
+            FOREIGN KEY(receiver_id) REFERENCES users(id)
         )`);
     });
 }

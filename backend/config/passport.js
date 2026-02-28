@@ -15,26 +15,38 @@ module.exports = function(passport) {
     proxy: true
   },
   (accessToken, refreshToken, profile, done) => {
-    const user = {
-      id: profile.id,
-      name: profile.displayName,
-      email: profile.emails[0].value,
-      photo_url: profile.photos[0].value
-    };
+    const googleId = profile.id;
+    const name = profile.displayName;
+    const email = profile.emails[0].value;
+    const photo_url = profile.photos[0].value;
 
-    // Insert or Update Google User
-    const sql = `
-      INSERT INTO users (id, name, email, photo_url) 
-      VALUES (?, ?, ?, ?)
-      ON CONFLICT(id) DO UPDATE SET 
-        name = excluded.name, 
-        photo_url = excluded.photo_url, 
-        email = excluded.email
-    `;
-
-    db.run(sql, [user.id, user.name, user.email, user.photo_url], (err) => {
+    // First check if a user with this email already exists (e.g., registered manually)
+    db.get("SELECT * FROM users WHERE email = ?", [email], (err, existing) => {
       if (err) return done(err);
-      return done(null, user);
+
+      if (existing) {
+        // User exists with this email — update their record with Google info
+        db.run("UPDATE users SET google_id = ?, name = ?, photo_url = ? WHERE id = ?",
+          [googleId, name, photo_url, existing.id], (err) => {
+            if (err) return done(err);
+            return done(null, { ...existing, name, photo_url, google_id: googleId });
+          });
+      } else {
+        // No existing user — insert new Google user
+        const sql = `
+          INSERT INTO users (id, name, email, photo_url, google_id)
+          VALUES (?, ?, ?, ?, ?)
+          ON CONFLICT(id) DO UPDATE SET
+            name = excluded.name,
+            photo_url = excluded.photo_url,
+            email = excluded.email,
+            google_id = excluded.google_id
+        `;
+        db.run(sql, [googleId, name, email, photo_url, googleId], (err) => {
+          if (err) return done(err);
+          return done(null, { id: googleId, name, email, photo_url });
+        });
+      }
     });
   }));
 

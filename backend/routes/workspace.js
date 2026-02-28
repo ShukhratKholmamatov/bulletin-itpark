@@ -29,6 +29,14 @@ router.get('/config', (req, res) => {
         if (WIDGET_REGISTRY[wId]) widgetDefs[wId] = WIDGET_REGISTRY[wId];
     });
 
+    // Always include task/team widget definitions (auto-injected by frontend based on role)
+    const role = req.user.role;
+    if (role === 'head' || role === 'admin') {
+        widgetDefs.my_team = WIDGET_REGISTRY.my_team;
+        widgetDefs.assigned_tasks = WIDGET_REGISTRY.assigned_tasks;
+    }
+    widgetDefs.my_tasks = WIDGET_REGISTRY.my_tasks;
+
     res.json({
         department: dept,
         group,
@@ -216,10 +224,12 @@ router.get('/metrics', (req, res) => {
 
 router.get('/ai-brief', async (req, res) => {
     const dept = req.user.department || 'Analytics';
+    const userId = req.user.id;
+    const userName = req.user.name || 'User';
     const config = getDepartmentConfig(dept);
     const force = req.query.force === 'true';
     const today = new Date().toISOString().split('T')[0];
-    const cacheKey = `${dept}_${today}_daily_brief`;
+    const cacheKey = `${userId}_${today}_daily_brief`;
 
     // Check cache first (unless force refresh)
     if (!force) {
@@ -233,10 +243,50 @@ router.get('/ai-brief', async (req, res) => {
         } catch (e) { /* continue to generate */ }
     }
 
+    // Helper to run db queries as promises
+    const dbGet = (sql, params) => new Promise((resolve, reject) => {
+        db.all(sql, params, (err, rows) => err ? reject(err) : resolve(rows));
+    });
+
+    // Fetch user activity data
+    const todayStart = new Date(new Date().setHours(0,0,0,0)).toISOString();
+    const weekAgo = new Date(Date.now() - 7 * 86400000).toISOString();
+    let activitySection = '';
+    try {
+        const [callsToday, callsWeek, recentCalls, itemsActive, itemsCompleted, noteCount, savedCount] = await Promise.all([
+            dbGet("SELECT COUNT(*) as c FROM call_log WHERE user_id=? AND created_at >= ?", [userId, todayStart]),
+            dbGet("SELECT COUNT(*) as c FROM call_log WHERE user_id=? AND created_at >= ?", [userId, weekAgo]),
+            dbGet("SELECT lead_name, company_name, call_result, notes FROM call_log WHERE user_id=? ORDER BY created_at DESC LIMIT 5", [userId]),
+            dbGet("SELECT COUNT(*) as c FROM workspace_tracked_items WHERE user_id=? AND status='active'", [userId]),
+            dbGet("SELECT COUNT(*) as c FROM workspace_tracked_items WHERE user_id=? AND status='completed' AND updated_at >= ?", [userId, weekAgo]),
+            dbGet("SELECT COUNT(*) as c FROM workspace_notes WHERE user_id=? AND created_at >= ?", [userId, weekAgo]),
+            dbGet("SELECT COUNT(*) as c FROM saved_news WHERE user_id=? AND saved_at >= ?", [userId, weekAgo]),
+        ]);
+
+        const callsTodayNum = callsToday[0]?.c || 0;
+        const callsWeekNum = callsWeek[0]?.c || 0;
+        const activeItems = itemsActive[0]?.c || 0;
+        const completedItems = itemsCompleted[0]?.c || 0;
+        const notes = noteCount[0]?.c || 0;
+        const saved = savedCount[0]?.c || 0;
+
+        activitySection = `\n\nYour Work Activity (${userName}, ${dept} department):
+- Calls made today: ${callsTodayNum}, this week: ${callsWeekNum}
+- Active tracked items: ${activeItems}, completed this week: ${completedItems}
+- Notes written this week: ${notes}
+- Articles saved this week: ${saved}`;
+
+        if (recentCalls.length) {
+            activitySection += `\nRecent calls:`;
+            recentCalls.forEach(c => {
+                activitySection += `\n  - ${c.lead_name}${c.company_name ? ' (' + c.company_name + ')' : ''}: ${c.call_result}${c.notes ? ' — ' + c.notes.substring(0, 80) : ''}`;
+            });
+        }
+    } catch (e) { /* activity fetch failed, continue without it */ }
+
     // Check if GROQ_API_KEY is set
     const apiKey = process.env.GROQ_API_KEY;
     if (!apiKey) {
-        // Still fetch news headlines as fallback
         try {
             const presets = config.newsPresets || {};
             const sq = (presets.keywords || ['Technology']).slice(0, 2).join(' OR ');
@@ -269,18 +319,20 @@ router.get('/ai-brief', async (req, res) => {
         }
 
         const articleList = articles.map((a, i) => `${i + 1}. "${a.title}" (${a.source})`).join('\n');
-        const prompt = `You are an analyst at IT Park Uzbekistan, ${dept} department.
-Focus: ${config.aiPromptContext}
+        const prompt = `You are a personal work assistant at IT Park Uzbekistan, helping ${userName} from the ${dept} department.
+Department focus: ${config.aiPromptContext}
+${activitySection}
 
-Based on these recent news articles, provide:
-1. A 3-sentence executive summary of the most important developments
-2. 3 key takeaways relevant to ${dept}
-3. 1 recommended action item
-
-Articles:
+Recent industry news:
 ${articleList}
 
-Respond in valid JSON only: {"summary":"...","takeaways":["...","...","..."],"action":"..."}`;
+Based on BOTH the user's work activity AND the news, provide:
+1. A personalized work summary (2-3 sentences): what the user accomplished, their productivity, and any patterns
+2. A news brief (2-3 sentences): the most relevant industry developments for their department
+3. 3 actionable recommendations combining their work priorities with news insights (e.g., "You had 3 calls with interested leads — the new tax incentive news could help convert them")
+4. 1 priority action for today
+
+Respond in valid JSON only: {"work_summary":"...","news_summary":"...","recommendations":["...","...","..."],"priority":"..."}`;
 
         const groqRes = await fetch('https://api.groq.com/openai/v1/chat/completions', {
             method: 'POST',
@@ -289,7 +341,7 @@ Respond in valid JSON only: {"summary":"...","takeaways":["...","...","..."],"ac
                 model: 'llama-3.3-70b-versatile',
                 messages: [{ role: 'user', content: prompt }],
                 temperature: 0.3,
-                max_tokens: 500
+                max_tokens: 700
             })
         });
 
@@ -303,11 +355,16 @@ Respond in valid JSON only: {"summary":"...","takeaways":["...","...","..."],"ac
         const content = groqData.choices[0].message.content;
         let parsed;
         try { parsed = JSON.parse(content); }
-        catch { parsed = { summary: content, takeaways: [], action: '' }; }
+        catch {
+            // Fallback: try to extract JSON from response
+            const jsonMatch = content.match(/\{[\s\S]*\}/);
+            if (jsonMatch) { try { parsed = JSON.parse(jsonMatch[0]); } catch { parsed = null; } }
+            if (!parsed) parsed = { work_summary: content, news_summary: '', recommendations: [], priority: '' };
+        }
 
-        // Cache for 6 hours
+        // Cache per user for 3 hours (shorter since it's personalized)
         db.run(
-            "INSERT OR REPLACE INTO ai_summary_cache (cache_key, department, summary_type, content, created_at, expires_at) VALUES (?, ?, ?, ?, datetime('now'), datetime('now', '+6 hours'))",
+            "INSERT OR REPLACE INTO ai_summary_cache (cache_key, department, summary_type, content, created_at, expires_at) VALUES (?, ?, ?, ?, datetime('now'), datetime('now', '+3 hours'))",
             [cacheKey, dept, 'daily_brief', JSON.stringify(parsed)]
         );
 
@@ -441,6 +498,121 @@ router.get('/calls/stats', (req, res) => {
                 });
             });
         });
+    });
+});
+
+// ── Team & Task Management ──
+
+function ensureHead(req, res, next) {
+    if (req.user.role === 'head' || req.user.role === 'admin') return next();
+    res.status(403).json({ error: 'Head role required' });
+}
+
+// Get team members (same department as head)
+router.get('/team', ensureAuth, ensureHead, (req, res) => {
+    const dept = req.user.department || 'General';
+    db.all("SELECT id, name, email, photo_url, department, role FROM users WHERE department = ? AND id != ?",
+        [dept, req.user.id], (err, rows) => {
+            if (err) return res.status(500).json({ error: err.message });
+            res.json(rows);
+        });
+});
+
+// Get tasks — head sees assigned tasks, viewer sees their tasks
+router.get('/tasks', ensureAuth, (req, res) => {
+    const userId = req.user.id;
+    const role = req.user.role;
+    const status = req.query.status;
+
+    let sql, params;
+    if (role === 'head' || role === 'admin') {
+        // Head sees tasks they assigned + tasks assigned to them
+        sql = `SELECT t.*,
+                u1.name as assignee_name, u1.photo_url as assignee_photo,
+                u2.name as assigner_name
+               FROM tasks t
+               LEFT JOIN users u1 ON t.assigned_to = u1.id
+               LEFT JOIN users u2 ON t.assigned_by = u2.id
+               WHERE t.assigned_by = ? OR t.assigned_to = ?`;
+        params = [userId, userId];
+    } else {
+        // Viewer sees only tasks assigned to them
+        sql = `SELECT t.*,
+                u2.name as assigner_name, u2.photo_url as assigner_photo
+               FROM tasks t
+               LEFT JOIN users u2 ON t.assigned_by = u2.id
+               WHERE t.assigned_to = ?`;
+        params = [userId];
+    }
+
+    if (status) {
+        sql += ` AND t.status = ?`;
+        params.push(status);
+    }
+    sql += ` ORDER BY CASE t.priority WHEN 'urgent' THEN 0 WHEN 'high' THEN 1 WHEN 'medium' THEN 2 ELSE 3 END, t.created_at DESC`;
+
+    db.all(sql, params, (err, rows) => {
+        if (err) return res.status(500).json({ error: err.message });
+        res.json(rows);
+    });
+});
+
+// Create task (head only)
+router.post('/tasks', ensureAuth, ensureHead, (req, res) => {
+    const { title, description, assigned_to, priority, deadline } = req.body;
+    if (!title || !assigned_to) return res.status(400).json({ error: 'Title and assignee required' });
+
+    const dept = req.user.department || 'General';
+    db.run(`INSERT INTO tasks (title, description, assigned_to, assigned_by, department, priority, deadline)
+            VALUES (?, ?, ?, ?, ?, ?, ?)`,
+        [title, description || '', assigned_to, req.user.id, dept, priority || 'medium', deadline || null],
+        function(err) {
+            if (err) return res.status(500).json({ error: err.message });
+            res.json({ success: true, id: this.lastID });
+        });
+});
+
+// Update task
+router.put('/tasks/:id', ensureAuth, (req, res) => {
+    const taskId = req.params.id;
+    const userId = req.user.id;
+    const role = req.user.role;
+
+    db.get("SELECT * FROM tasks WHERE id = ?", [taskId], (err, task) => {
+        if (err) return res.status(500).json({ error: err.message });
+        if (!task) return res.status(404).json({ error: 'Task not found' });
+
+        // Head can edit any field on tasks they assigned, viewer can only update status
+        if (role === 'head' || role === 'admin') {
+            if (task.assigned_by !== userId && task.assigned_to !== userId) {
+                return res.status(403).json({ error: 'Not your task' });
+            }
+            const { title, description, status, priority, deadline } = req.body;
+            db.run(`UPDATE tasks SET title=?, description=?, status=?, priority=?, deadline=?, updated_at=datetime('now') WHERE id=?`,
+                [title || task.title, description !== undefined ? description : task.description, status || task.status, priority || task.priority, deadline !== undefined ? deadline : task.deadline, taskId],
+                function(err2) {
+                    if (err2) return res.status(500).json({ error: err2.message });
+                    res.json({ success: true });
+                });
+        } else {
+            // Viewer can only update status on tasks assigned to them
+            if (task.assigned_to !== userId) return res.status(403).json({ error: 'Not your task' });
+            const { status } = req.body;
+            if (!status) return res.status(400).json({ error: 'Status required' });
+            db.run(`UPDATE tasks SET status=?, updated_at=datetime('now') WHERE id=?`, [status, taskId], function(err2) {
+                if (err2) return res.status(500).json({ error: err2.message });
+                res.json({ success: true });
+            });
+        }
+    });
+});
+
+// Delete task (head only, tasks they assigned)
+router.delete('/tasks/:id', ensureAuth, ensureHead, (req, res) => {
+    db.run("DELETE FROM tasks WHERE id = ? AND assigned_by = ?", [req.params.id, req.user.id], function(err) {
+        if (err) return res.status(500).json({ error: err.message });
+        if (this.changes === 0) return res.status(404).json({ error: 'Task not found or not yours' });
+        res.json({ success: true });
     });
 });
 

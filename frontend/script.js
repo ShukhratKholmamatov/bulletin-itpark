@@ -24,6 +24,29 @@ let isLoading = false;
 let selectedNews = [];
 const AUTO_REFRESH_MS = 10 * 60 * 1000;
 
+// Chat state
+let _chatPanelOpen = false;
+let _chatMessages = [];
+let _chatLastMessageId = 0;
+let _chatPollInterval = null;
+
+/* =========================
+   📱 MOBILE SIDEBAR
+========================= */
+function toggleMobileSidebar() {
+    const sidebar = document.querySelector('.sidebar');
+    const overlay = document.getElementById('mobile-overlay');
+    if (!sidebar) return;
+    sidebar.classList.toggle('mobile-open');
+    if (overlay) overlay.classList.toggle('active');
+}
+function closeMobileSidebar() {
+    const sidebar = document.querySelector('.sidebar');
+    const overlay = document.getElementById('mobile-overlay');
+    if (sidebar) sidebar.classList.remove('mobile-open');
+    if (overlay) overlay.classList.remove('active');
+}
+
 /* =========================
    📊 CHARTS VARS
 ========================= */
@@ -119,6 +142,7 @@ async function handleRegister() {
     const password = document.getElementById('reg-password').value;
 
     if(!name || !email || !password) return alert("Please fill all fields");
+    if(!department) return alert("Please select a department");
 
     const res = await fetch('/auth/register', {
         method: 'POST',
@@ -409,23 +433,25 @@ async function loadAdminUsers() {
                 <td>${escapeHtml(u.email)}</td>
                 <td>
                     <select onchange="changeUserDept('${escapeHtml(u.id)}', this.value)" class="admin-dept-inline">
-                        ${['Product Export','Startup Ecosystem','Western Markets','Eastern Markets','GovTech','Venture Capital','Analytics','BPO Monitoring','Residents Relations','Residents Registration','Residents Monitoring','Softlanding','Legal Ecosystem','AI Infrastructure','AI Research','Inclusive Projects','Regional Development','Freelancers & Youth','Infrastructure','Infrastructure Dev','PPP Investors','IT Outsourcing','Global Marketing','Multimedia','Public Relations','Marketing','Event Management'].map(d =>
+                        ${['Product Export','Startup Ecosystem','Western Markets','Eastern Markets','GovTech','Venture Capital','Analytics','BPO Monitoring','Residents Relations','Residents Registration','Residents Monitoring','Softlanding','Legal Ecosystem','AI Infrastructure','AI Research','Inclusive Projects','Regional Development','Freelancers & Youth','Infrastructure','Infrastructure Dev','PPP Investors','IT Outsourcing','Global Marketing','Multimedia','Public Relations','Marketing','Event Management','HR'].map(d =>
                             `<option value="${d}" ${u.department === d ? 'selected' : ''}>${d}</option>`
                         ).join('')}
                     </select>
                 </td>
-                <td><span class="admin-role-badge ${u.role === 'admin' ? 'admin' : 'viewer'}">${escapeHtml(u.role)}</span></td>
+                <td>
+                    ${isSelf ? `<span class="admin-role-badge ${u.role}">${escapeHtml(u.role)}</span>` :
+                    `<select onchange="changeUserRole('${escapeHtml(u.id)}', this.value)" class="admin-role-select">
+                        <option value="viewer" ${u.role==='viewer'?'selected':''}>Viewer</option>
+                        <option value="head" ${u.role==='head'?'selected':''}>Head</option>
+                        <option value="admin" ${u.role==='admin'?'selected':''}>Admin</option>
+                    </select>`}
+                </td>
                 <td style="white-space:nowrap;">${date}</td>
                 <td>
                     ${isSelf ? '<span style="color:var(--text-muted); font-size:0.8rem;">—</span>' :
-                    `<div class="admin-actions-group">
-                        <button class="admin-action-btn" onclick="toggleUserRole('${escapeHtml(u.id)}', '${escapeHtml(u.role)}')">
-                            ${u.role === 'admin' ? '<i class="fa-solid fa-arrow-down"></i> Demote' : '<i class="fa-solid fa-arrow-up"></i> Promote'}
-                        </button>
-                        <button class="admin-action-btn delete" onclick="deleteUser('${escapeHtml(u.id)}', '${escapeHtml(u.name || u.email)}')">
-                            <i class="fa-solid fa-trash"></i>
-                        </button>
-                    </div>`}
+                    `<button class="admin-action-btn delete" onclick="deleteUser('${escapeHtml(u.id)}', '${escapeHtml(u.name || u.email)}')">
+                        <i class="fa-solid fa-trash"></i>
+                    </button>`}
                 </td>
             </tr>`;
         }).join('');
@@ -434,10 +460,9 @@ async function loadAdminUsers() {
     }
 }
 
-async function toggleUserRole(userId, currentRole) {
-    const newRole = currentRole === 'admin' ? 'viewer' : 'admin';
-    const action = newRole === 'admin' ? 'promote to Admin' : 'demote to Viewer';
-    if (!confirm(`Are you sure you want to ${action} this user?`)) return;
+async function changeUserRole(userId, newRole) {
+    const labels = { admin: 'Admin', head: 'Dept Head', viewer: 'Viewer' };
+    if (!confirm(`Change this user's role to "${labels[newRole]}"?`)) return;
 
     try {
         const res = await fetch(`/admin/users/${userId}/role`, {
@@ -497,7 +522,6 @@ async function changeUserDept(userId, newDept) {
 
 async function loadAdminContent() {
     const statsEl = document.getElementById('admin-content-stats');
-    const typesEl = document.getElementById('admin-research-types');
     const articlesEl = document.getElementById('admin-popular-articles');
     if (!statsEl) return;
 
@@ -508,35 +532,12 @@ async function loadAdminContent() {
         if (!res.ok) throw new Error('Failed');
         const data = await res.json();
 
-        const totalResearch = data.researchByType.reduce((s, r) => s + r.count, 0);
-        const totalTopics = data.researchByTopic.length;
-
         statsEl.innerHTML = `
-            <div class="admin-stat-card">
-                <div class="admin-stat-icon" style="background:var(--primary-light); color:var(--primary);"><i class="fa-solid fa-file-lines"></i></div>
-                <div><div class="admin-stat-value">${totalResearch}</div><div class="admin-stat-label">Research Documents</div></div>
-            </div>
-            <div class="admin-stat-card">
-                <div class="admin-stat-icon" style="background:#e0f2fe; color:#0284c7;"><i class="fa-solid fa-tags"></i></div>
-                <div><div class="admin-stat-value">${totalTopics}</div><div class="admin-stat-label">Research Topics</div></div>
-            </div>
             <div class="admin-stat-card">
                 <div class="admin-stat-icon" style="background:#fce7f3; color:#db2777;"><i class="fa-solid fa-fire"></i></div>
                 <div><div class="admin-stat-value">${data.popularArticles.length}</div><div class="admin-stat-label">Trending Articles</div></div>
             </div>
         `;
-
-        if (typesEl) {
-            const maxType = Math.max(...data.researchByType.map(r => r.count), 1);
-            typesEl.innerHTML = data.researchByType.length ? data.researchByType.map(r => `
-                <div class="admin-dept-bar-row">
-                    <div class="admin-dept-bar-label" style="text-transform:capitalize;">${escapeHtml(r.doc_type)}</div>
-                    <div class="admin-dept-bar-track">
-                        <div class="admin-dept-bar-fill" style="width:${(r.count / maxType * 100)}%; background:#7c3aed;">${r.count}</div>
-                    </div>
-                </div>
-            `).join('') : '<p style="color:var(--text-muted); text-align:center;">No research data yet.</p>';
-        }
 
         if (articlesEl) {
             articlesEl.innerHTML = data.popularArticles.length ? data.popularArticles.map((a, i) => `
@@ -556,7 +557,6 @@ async function loadAdminContent() {
     } catch (err) {
         statsEl.innerHTML = '<div style="text-align:center; padding:20px; color:var(--accent-red);">Failed to load content data.</div>';
     }
-    loadAdminArchive();
 }
 
 async function deleteArticle(newsId, title) {
@@ -576,70 +576,6 @@ async function deleteArticle(newsId, title) {
     }
 }
 
-
-let _archiveSearchTimer;
-function debounceAdminArchiveSearch() {
-    clearTimeout(_archiveSearchTimer);
-    _archiveSearchTimer = setTimeout(loadAdminArchive, 300);
-}
-
-async function loadAdminArchive() {
-    const tbody = document.getElementById('admin-archive-tbody');
-    if (!tbody) return;
-    const search = (document.getElementById('admin-archive-search')?.value || '').trim();
-
-    tbody.innerHTML = '<tr><td colspan="6" style="text-align:center; padding:20px; color:var(--text-muted);"><i class="fa-solid fa-spinner fa-spin"></i></td></tr>';
-
-    try {
-        const res = await fetch(`/admin/archive?search=${encodeURIComponent(search)}`, {
-            credentials: 'include',
-            headers: { 'Accept': 'application/json' }
-        });
-        if (!res.ok) throw new Error('Failed');
-        const data = await res.json();
-
-        if (!data.archives.length) {
-            tbody.innerHTML = '<tr><td colspan="6" style="text-align:center; padding:20px; color:var(--text-muted);">No archive documents found.</td></tr>';
-            return;
-        }
-
-        tbody.innerHTML = data.archives.map(a => {
-            const date = a.created_at ? new Date(a.created_at).toLocaleDateString() : '—';
-            return `<tr>
-                <td style="max-width:250px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${escapeHtml(a.title)}</td>
-                <td><span style="text-transform:capitalize;">${escapeHtml(a.doc_type || '—')}</span></td>
-                <td>${escapeHtml(a.topic || '—')}</td>
-                <td>${escapeHtml(a.author || '—')}</td>
-                <td style="white-space:nowrap;">${date}</td>
-                <td>
-                    <button class="admin-action-btn delete" onclick="deleteArchiveDoc(${a.id}, '${escapeHtml(a.title).replace(/'/g, "\\'")}')">
-                        <i class="fa-solid fa-trash"></i>
-                    </button>
-                </td>
-            </tr>`;
-        }).join('');
-    } catch (err) {
-        tbody.innerHTML = '<tr><td colspan="6" style="text-align:center; padding:20px; color:var(--accent-red);">Failed to load archive.</td></tr>';
-    }
-}
-
-async function deleteArchiveDoc(id, title) {
-    if (!confirm(`Delete "${title}" from the archive? This cannot be undone.`)) return;
-
-    try {
-        const res = await fetch(`/archive/${id}`, {
-            method: 'DELETE',
-            headers: { 'Accept': 'application/json' },
-            credentials: 'include'
-        });
-        const data = await res.json();
-        if (!res.ok) throw new Error(data.error || 'Failed to delete');
-        loadAdminArchive();
-        loadAdminContent();
-    } catch (err) {
-        alert('Error: ' + err.message);
-    }
-}
 
 /* =========================
    ADMIN ACTIVITY KPI
@@ -773,7 +709,11 @@ const WIDGET_RENDERERS = {
     spravochnik: renderSpravochnikWidget,
     office_directory: renderOfficeDirectoryWidget,
     call_log: renderCallLogWidget,
-    lead_pipeline: renderTrackedItemsWidget
+    lead_pipeline: renderTrackedItemsWidget,
+    my_team: renderTeamWidget,
+    assigned_tasks: renderAssignedTasksWidget,
+    my_tasks: renderMyTasksWidget,
+    announcements: renderAnnouncementsWidget
 };
 
 async function loadWorkspace() {
@@ -847,7 +787,16 @@ function renderWorkspaceWidgets(widgetIds) {
     const grid = document.getElementById('workspace-widgets');
     grid.innerHTML = '';
 
-    widgetIds.forEach(wId => {
+    // Auto-inject task widgets based on role
+    const role = currentUser?.role;
+    const injected = [...widgetIds];
+    if (role === 'head' || role === 'admin') {
+        if (!injected.includes('my_team')) injected.unshift('my_team');
+        if (!injected.includes('assigned_tasks')) injected.splice(1, 0, 'assigned_tasks');
+    }
+    if (!injected.includes('my_tasks')) injected.splice(role === 'head' ? 2 : 0, 0, 'my_tasks');
+
+    injected.forEach(wId => {
         const wDef = workspaceConfig.widgetDefinitions[wId];
         if (!wDef) return;
 
@@ -1048,15 +997,33 @@ async function renderAiBriefWidget(wId, wDef) {
         }
 
         let html = '';
-        if (data.summary) html += `<div class="ai-brief-summary">${escapeHtml(data.summary)}</div>`;
-        if (data.takeaways && data.takeaways.length) {
-            html += '<div class="ai-brief-takeaways">';
-            data.takeaways.forEach(t => {
-                html += `<div class="ai-brief-takeaway"><i class="fa-solid fa-lightbulb"></i> <span>${escapeHtml(t)}</span></div>`;
+        // New format: work_summary + news_summary + recommendations + priority
+        if (data.work_summary) {
+            html += `<div class="ai-brief-section"><div class="ai-brief-section-label"><i class="fa-solid fa-user-check"></i> Your Work</div><div class="ai-brief-summary">${escapeHtml(data.work_summary)}</div></div>`;
+        }
+        if (data.news_summary) {
+            html += `<div class="ai-brief-section"><div class="ai-brief-section-label"><i class="fa-solid fa-newspaper"></i> Industry News</div><div class="ai-brief-summary">${escapeHtml(data.news_summary)}</div></div>`;
+        }
+        if (data.recommendations && data.recommendations.length) {
+            html += '<div class="ai-brief-section"><div class="ai-brief-section-label"><i class="fa-solid fa-lightbulb"></i> Recommendations</div><div class="ai-brief-takeaways">';
+            data.recommendations.forEach(t => {
+                html += `<div class="ai-brief-takeaway"><i class="fa-solid fa-arrow-right"></i> <span>${escapeHtml(t)}</span></div>`;
             });
+            html += '</div></div>';
+        }
+        if (data.priority) {
+            html += `<div class="ai-brief-action"><strong><i class="fa-solid fa-bolt"></i> Today's Priority</strong>${escapeHtml(data.priority)}</div>`;
+        }
+        // Backward compatibility with old format
+        if (!data.work_summary && data.summary) {
+            html += `<div class="ai-brief-summary">${escapeHtml(data.summary)}</div>`;
+        }
+        if (!data.recommendations && data.takeaways && data.takeaways.length) {
+            html += '<div class="ai-brief-takeaways">';
+            data.takeaways.forEach(t => { html += `<div class="ai-brief-takeaway"><i class="fa-solid fa-lightbulb"></i> <span>${escapeHtml(t)}</span></div>`; });
             html += '</div>';
         }
-        if (data.action) {
+        if (!data.priority && data.action) {
             html += `<div class="ai-brief-action"><strong><i class="fa-solid fa-bolt"></i> Recommended Action</strong>${escapeHtml(data.action)}</div>`;
         }
         body.innerHTML = html || '<div class="ai-unavailable">No AI summary available.</div>';
@@ -1367,6 +1334,362 @@ async function deleteCallLog(id) {
     } catch (err) { alert('Error: ' + err.message); }
 }
 
+// ── Team Widget (head only) ──
+async function renderTeamWidget(wId, wDef) {
+    const body = document.getElementById(`widget-body-${wId}`);
+    if (!body) return;
+    try {
+        const res = await fetch('/workspace/team', { credentials: 'include' });
+        if (!res.ok) { body.innerHTML = '<div class="widget-empty"><p>Team view requires Head role</p></div>'; return; }
+        const members = await res.json();
+        if (!members.length) { body.innerHTML = '<div class="widget-empty"><i class="fa-solid fa-users" style="font-size:1.5rem;"></i><p>No team members in your department</p></div>'; return; }
+
+        body.innerHTML = `<div class="team-list">${members.map(m => {
+            const avatar = m.photo_url || `https://ui-avatars.com/api/?name=${encodeURIComponent(m.name || 'U')}&background=7dba28&color=fff&size=34`;
+            return `<div class="team-member-row">
+                <img src="${escapeHtml(avatar)}" class="team-avatar" onerror="this.src='https://ui-avatars.com/api/?name=U&background=7dba28&color=fff&size=34'">
+                <div class="team-info"><strong>${escapeHtml(m.name || 'Unknown')}</strong><small>${escapeHtml(m.email)}</small></div>
+                <span class="admin-role-badge ${m.role}">${escapeHtml(m.role)}</span>
+                <button class="team-assign-btn" onclick="showAssignTaskModal('${escapeHtml(m.id)}', '${escapeHtml(m.name || '')}')"><i class="fa-solid fa-plus"></i> Assign Task</button>
+            </div>`;
+        }).join('')}</div>`;
+    } catch { body.innerHTML = '<div class="widget-error">Failed to load team</div>'; }
+}
+
+// ── Assigned Tasks Widget (head sees tasks they assigned) ──
+async function renderAssignedTasksWidget(wId, wDef) {
+    const body = document.getElementById(`widget-body-${wId}`);
+    if (!body) return;
+    try {
+        const res = await fetch('/workspace/tasks', { credentials: 'include' });
+        if (!res.ok) throw new Error('Failed');
+        const tasks = await res.json();
+        const assigned = tasks.filter(t => t.assigned_by === currentUser?.id);
+        if (!assigned.length) {
+            body.innerHTML = '<div class="widget-empty"><i class="fa-solid fa-list-check" style="font-size:1.5rem;"></i><p>No tasks assigned yet</p></div>';
+            return;
+        }
+        body.innerHTML = `<div class="task-list">${assigned.map(t => renderTaskCard(t, 'head')).join('')}</div>`;
+    } catch { body.innerHTML = '<div class="widget-error">Failed to load tasks</div>'; }
+}
+
+// ── My Tasks Widget (viewer sees tasks assigned to them) ──
+async function renderMyTasksWidget(wId, wDef) {
+    const body = document.getElementById(`widget-body-${wId}`);
+    if (!body) return;
+    try {
+        const res = await fetch('/workspace/tasks', { credentials: 'include' });
+        if (!res.ok) throw new Error('Failed');
+        const tasks = await res.json();
+        const myTasks = tasks.filter(t => t.assigned_to === currentUser?.id);
+        if (!myTasks.length) {
+            body.innerHTML = '<div class="widget-empty"><i class="fa-solid fa-clipboard-check" style="font-size:1.5rem;"></i><p>No tasks assigned to you</p></div>';
+            return;
+        }
+        body.innerHTML = `<div class="task-list">${myTasks.map(t => renderTaskCard(t, 'viewer')).join('')}</div>`;
+    } catch { body.innerHTML = '<div class="widget-error">Failed to load tasks</div>'; }
+}
+
+function renderTaskCard(t, viewMode) {
+    const priorityColors = { urgent: '#ef4444', high: '#f59e0b', medium: '#3b82f6', low: '#94a3b8' };
+    const statusIcons = { pending: 'fa-clock', in_progress: 'fa-spinner', completed: 'fa-check-circle' };
+    const borderColor = priorityColors[t.priority] || '#3b82f6';
+    const isOverdue = t.deadline && new Date(t.deadline) < new Date() && t.status !== 'completed';
+    const deadlineStr = t.deadline ? new Date(t.deadline).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' }) : '';
+
+    let personInfo = '';
+    if (viewMode === 'head' && t.assignee_name) {
+        personInfo = `<span class="task-person"><i class="fa-solid fa-user"></i> ${escapeHtml(t.assignee_name)}</span>`;
+    } else if (viewMode === 'viewer' && t.assigner_name) {
+        personInfo = `<span class="task-person"><i class="fa-solid fa-user-tie"></i> from ${escapeHtml(t.assigner_name)}</span>`;
+    }
+
+    let actions = '';
+    if (viewMode === 'head') {
+        actions = `<button class="task-delete-btn" onclick="deleteTask(${t.id})" title="Delete"><i class="fa-solid fa-trash"></i></button>`;
+    }
+    if (viewMode === 'viewer' || t.assigned_to === currentUser?.id) {
+        const nextStatus = t.status === 'pending' ? 'in_progress' : t.status === 'in_progress' ? 'completed' : '';
+        const nextLabel = t.status === 'pending' ? 'Start' : t.status === 'in_progress' ? 'Done' : '';
+        if (nextStatus) {
+            actions = `<button class="task-status-btn ${nextStatus}" onclick="updateTaskStatus(${t.id}, '${nextStatus}')">${nextLabel}</button>` + actions;
+        }
+    }
+
+    return `<div class="task-card" style="border-left-color: ${borderColor};">
+        <div class="task-card-top">
+            <span class="priority-badge priority-${t.priority}">${t.priority}</span>
+            <span class="task-status task-status-${t.status}"><i class="fa-solid ${statusIcons[t.status] || 'fa-clock'}"></i> ${t.status.replace('_', ' ')}</span>
+        </div>
+        <div class="task-card-title">${escapeHtml(t.title)}</div>
+        ${t.description ? `<div class="task-card-desc">${escapeHtml(t.description)}</div>` : ''}
+        <div class="task-card-footer">
+            ${personInfo}
+            ${deadlineStr ? `<span class="task-deadline ${isOverdue ? 'overdue' : ''}"><i class="fa-solid fa-calendar"></i> ${deadlineStr}</span>` : ''}
+            <div class="task-card-actions">${actions}</div>
+        </div>
+    </div>`;
+}
+
+// Task assignment modal
+let _taskTeamMembers = [];
+async function showAssignTaskModal(userId, userName) {
+    const modal = document.getElementById('workspace-modal');
+    const title = document.getElementById('workspace-modal-title');
+    const form = document.getElementById('workspace-item-form');
+    const metaFields = document.getElementById('ws-meta-fields');
+    if (!modal || !form) return;
+
+    title.textContent = userName ? `Assign Task to ${userName}` : 'Assign Task';
+
+    // Load team if not assigning to specific user
+    if (!userId) {
+        try {
+            const res = await fetch('/workspace/team', { credentials: 'include' });
+            _taskTeamMembers = await res.json();
+        } catch { _taskTeamMembers = []; }
+    }
+
+    document.getElementById('ws-item-id').value = '';
+    document.getElementById('ws-item-type').value = '__task__';
+    document.getElementById('ws-item-title').value = '';
+    document.getElementById('ws-item-desc').value = '';
+    document.getElementById('ws-item-status').closest('.ws-form-group').style.display = 'none';
+
+    metaFields.innerHTML = `
+        ${!userId ? `<div class="ws-form-group"><label>Assign To</label>
+            <select id="ws-task-assignee" required>
+                <option value="">Select team member...</option>
+                ${_taskTeamMembers.map(m => `<option value="${escapeHtml(m.id)}">${escapeHtml(m.name)}</option>`).join('')}
+            </select></div>` : `<input type="hidden" id="ws-task-assignee" value="${escapeHtml(userId)}">`}
+        <div class="ws-form-group"><label>Priority</label>
+            <select id="ws-task-priority">
+                <option value="low">Low</option>
+                <option value="medium" selected>Medium</option>
+                <option value="high">High</option>
+                <option value="urgent">Urgent</option>
+            </select>
+        </div>
+        <div class="ws-form-group"><label>Deadline</label>
+            <input type="date" id="ws-task-deadline">
+        </div>
+    `;
+    modal.style.display = 'flex';
+}
+
+async function updateTaskStatus(taskId, newStatus) {
+    try {
+        const res = await fetch(`/workspace/tasks/${taskId}`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            credentials: 'include',
+            body: JSON.stringify({ status: newStatus })
+        });
+        if (!res.ok) throw new Error('Failed');
+        refreshTaskWidgets();
+    } catch (err) { alert('Error: ' + err.message); }
+}
+
+async function deleteTask(taskId) {
+    if (!confirm('Delete this task?')) return;
+    try {
+        const res = await fetch(`/workspace/tasks/${taskId}`, { method: 'DELETE', credentials: 'include' });
+        if (!res.ok) throw new Error('Failed');
+        refreshTaskWidgets();
+    } catch (err) { alert('Error: ' + err.message); }
+}
+
+function refreshTaskWidgets() {
+    if (!workspaceConfig) return;
+    ['my_team', 'assigned_tasks', 'my_tasks'].forEach(wId => {
+        const wDef = workspaceConfig.widgetDefinitions?.[wId];
+        const renderer = WIDGET_RENDERERS[wId];
+        if (renderer && document.getElementById(`widget-body-${wId}`)) renderer(wId, wDef || {});
+    });
+}
+
+// ── Announcements Widget (HR workspace) ──
+async function renderAnnouncementsWidget(wId, wDef) {
+    const body = document.getElementById(`widget-body-${wId}`);
+    if (!body) return;
+    const isHR = currentUser?.department === 'HR' || currentUser?.role === 'admin';
+
+    try {
+        const res = await fetch('/announcements', { credentials: 'include' });
+        if (!res.ok) throw new Error('Failed');
+        const announcements = await res.json();
+
+        let html = '';
+        if (isHR) {
+            html += `<button class="announcement-create-btn" onclick="showAnnouncementForm()"><i class="fa-solid fa-plus"></i> New Announcement</button>`;
+        }
+
+        if (!announcements.length) {
+            html += '<div class="widget-empty"><i class="fa-solid fa-bullhorn" style="font-size:1.5rem;"></i><p>No announcements yet</p></div>';
+        } else {
+            html += `<div class="announcement-list">${announcements.map(a => {
+                const date = new Date(a.created_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
+                const preview = a.content.length > 120 ? a.content.substring(0, 120) + '...' : a.content;
+                return `<div class="announcement-card ${a.is_read ? '' : 'unread'}" onclick="openAnnouncementPopup(${a.id})">
+                    ${a.image_url ? `<img src="${a.image_url}" class="announcement-card-img" onerror="this.style.display='none'">` : ''}
+                    <div class="announcement-card-body">
+                        <div class="announcement-card-title">${escapeHtml(a.title)}</div>
+                        <div class="announcement-card-preview">${escapeHtml(preview)}</div>
+                        <div class="announcement-card-meta">
+                            <span><i class="fa-solid fa-user"></i> ${escapeHtml(a.author_name || 'HR')}</span>
+                            <span><i class="fa-regular fa-calendar"></i> ${date}</span>
+                        </div>
+                    </div>
+                    ${isHR ? `<button class="announcement-delete-btn" onclick="event.stopPropagation(); deleteAnnouncement(${a.id})" title="Delete"><i class="fa-solid fa-trash"></i></button>` : ''}
+                </div>`;
+            }).join('')}</div>`;
+        }
+        body.innerHTML = html;
+    } catch { body.innerHTML = '<div class="widget-error">Failed to load announcements</div>'; }
+}
+
+// ── Announcement Form (HR creates new announcement) ──
+function showAnnouncementForm() {
+    const modal = document.getElementById('workspace-modal');
+    const title = document.getElementById('workspace-modal-title');
+    const form = document.getElementById('workspace-item-form');
+    const metaFields = document.getElementById('ws-meta-fields');
+    if (!modal || !form) return;
+
+    title.textContent = 'New Announcement';
+    document.getElementById('ws-item-id').value = '';
+    document.getElementById('ws-item-type').value = '__announcement__';
+    document.getElementById('ws-item-title').value = '';
+    document.getElementById('ws-item-desc').value = '';
+    document.getElementById('ws-item-status').closest('.ws-form-group').style.display = 'none';
+
+    metaFields.innerHTML = `
+        <div class="ws-form-group">
+            <label>Image (optional)</label>
+            <input type="file" id="ws-announcement-image" accept=".jpg,.jpeg,.png,.gif,.webp">
+        </div>
+    `;
+    modal.style.display = 'flex';
+}
+
+async function deleteAnnouncement(id) {
+    if (!confirm('Delete this announcement?')) return;
+    try {
+        const res = await fetch(`/announcements/${id}`, { method: 'DELETE', credentials: 'include' });
+        if (!res.ok) throw new Error('Failed');
+        // Refresh widget + notifications
+        const renderer = WIDGET_RENDERERS['announcements'];
+        const wDef = workspaceConfig?.widgetDefinitions?.['announcements'];
+        if (renderer && document.getElementById('widget-body-announcements')) renderer('announcements', wDef || {});
+        loadUnreadCount();
+    } catch (err) { alert('Error: ' + err.message); }
+}
+
+// ── Notification Bell ──
+let _notificationPanelOpen = false;
+
+async function loadUnreadCount() {
+    if (!currentUser) return;
+    try {
+        const res = await fetch('/announcements/unread-count', { credentials: 'include' });
+        if (!res.ok) return;
+        const data = await res.json();
+        const badge = document.getElementById('notification-badge');
+        if (badge) {
+            if (data.count > 0) {
+                badge.textContent = data.count > 99 ? '99+' : data.count;
+                badge.style.display = 'flex';
+            } else {
+                badge.style.display = 'none';
+            }
+        }
+    } catch {}
+}
+
+function toggleNotificationPanel() {
+    const panel = document.getElementById('notification-panel');
+    if (!panel) return;
+    _notificationPanelOpen = !_notificationPanelOpen;
+    panel.style.display = _notificationPanelOpen ? 'block' : 'none';
+    if (_notificationPanelOpen) loadNotifications();
+}
+
+async function loadNotifications() {
+    const list = document.getElementById('notification-panel-list');
+    if (!list) return;
+    try {
+        const res = await fetch('/announcements', { credentials: 'include' });
+        if (!res.ok) throw new Error('Failed');
+        const announcements = await res.json();
+
+        if (!announcements.length) {
+            list.innerHTML = '<div style="text-align:center; padding:24px; color:var(--text-muted);">No announcements</div>';
+            return;
+        }
+
+        list.innerHTML = announcements.slice(0, 20).map(a => {
+            const date = new Date(a.created_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' });
+            return `<div class="notification-item ${a.is_read ? '' : 'unread'}" onclick="openAnnouncementPopup(${a.id}); toggleNotificationPanel();">
+                <div class="notification-item-dot"></div>
+                <div class="notification-item-body">
+                    <div class="notification-item-title">${escapeHtml(a.title)}</div>
+                    <div class="notification-item-date">${date} &middot; ${escapeHtml(a.author_name || 'HR')}</div>
+                </div>
+            </div>`;
+        }).join('');
+    } catch { list.innerHTML = '<div style="text-align:center; padding:20px; color:var(--accent-red);">Failed to load</div>'; }
+}
+
+// ── Announcement Popup ──
+async function openAnnouncementPopup(id) {
+    const overlay = document.getElementById('announcement-popup');
+    const body = document.getElementById('announcement-popup-body');
+    if (!overlay || !body) return;
+
+    overlay.style.display = 'flex';
+    body.innerHTML = '<div style="text-align:center; padding:40px;"><i class="fa-solid fa-spinner fa-spin fa-2x" style="color:#94a3b8;"></i></div>';
+
+    try {
+        // Mark as read
+        fetch(`/announcements/${id}/read`, { method: 'POST', credentials: 'include' }).then(() => loadUnreadCount());
+
+        const res = await fetch('/announcements', { credentials: 'include' });
+        const announcements = await res.json();
+        const a = announcements.find(x => x.id === id);
+        if (!a) { body.innerHTML = '<p>Announcement not found.</p>'; return; }
+
+        const date = new Date(a.created_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' });
+        body.innerHTML = `
+            ${a.image_url ? `<img src="${a.image_url}" class="announcement-popup-img" onerror="this.style.display='none'">` : ''}
+            <h2 class="announcement-popup-title">${escapeHtml(a.title)}</h2>
+            <div class="announcement-popup-meta">
+                <span><i class="fa-solid fa-user"></i> ${escapeHtml(a.author_name || 'HR')}</span>
+                <span><i class="fa-regular fa-calendar"></i> ${date}</span>
+            </div>
+            <div class="announcement-popup-text">${escapeHtml(a.content).replace(/\n/g, '<br>')}</div>
+        `;
+
+        // Update unread styling in widget/panel
+        document.querySelectorAll(`.announcement-card[onclick*="${id}"]`).forEach(el => el.classList.remove('unread'));
+        document.querySelectorAll(`.notification-item[onclick*="${id}"]`).forEach(el => el.classList.remove('unread'));
+    } catch { body.innerHTML = '<p style="color:#ef4444;">Failed to load announcement.</p>'; }
+}
+
+function closeAnnouncementPopup(event) {
+    if (event && event.target !== event.currentTarget && !event.target.closest('.announcement-popup-close')) return;
+    const overlay = document.getElementById('announcement-popup');
+    if (overlay) overlay.style.display = 'none';
+}
+
+// Close notification panel when clicking outside
+document.addEventListener('click', (e) => {
+    if (_notificationPanelOpen && !e.target.closest('#notification-wrapper')) {
+        _notificationPanelOpen = false;
+        const panel = document.getElementById('notification-panel');
+        if (panel) panel.style.display = 'none';
+    }
+});
+
 // ── Tracked Item CRUD ──
 let _editingItemId = null;
 let _currentItemType = '';
@@ -1418,6 +1741,53 @@ async function saveTrackedItem(e) {
 
     if (!title) return alert('Title is required');
 
+    // Handle announcement creation separately
+    if (itemType === '__announcement__') {
+        if (!description) return alert('Announcement content is required');
+        const formData = new FormData();
+        formData.append('title', title);
+        formData.append('content', description);
+        const imageInput = document.getElementById('ws-announcement-image');
+        if (imageInput && imageInput.files.length > 0) {
+            formData.append('image', imageInput.files[0]);
+        }
+        try {
+            const res = await fetch('/announcements', { method: 'POST', credentials: 'include', body: formData });
+            const data = await res.json();
+            if (!res.ok) throw new Error(data.error || 'Failed');
+            closeWorkspaceModal();
+            document.getElementById('ws-item-status').closest('.ws-form-group').style.display = '';
+            // Refresh announcements widget
+            const renderer = WIDGET_RENDERERS['announcements'];
+            const wDef = workspaceConfig?.widgetDefinitions?.['announcements'];
+            if (renderer && document.getElementById('widget-body-announcements')) renderer('announcements', wDef || {});
+            loadUnreadCount();
+        } catch (err) { alert('Error: ' + err.message); }
+        return;
+    }
+
+    // Handle task creation separately
+    if (itemType === '__task__') {
+        const assignee = document.getElementById('ws-task-assignee')?.value;
+        const priority = document.getElementById('ws-task-priority')?.value || 'medium';
+        const deadline = document.getElementById('ws-task-deadline')?.value || null;
+        if (!assignee) return alert('Please select a team member');
+        try {
+            const res = await fetch('/workspace/tasks', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                credentials: 'include',
+                body: JSON.stringify({ title, description, assigned_to: assignee, priority, deadline })
+            });
+            const data = await res.json();
+            if (!res.ok) throw new Error(data.error || 'Failed');
+            closeWorkspaceModal();
+            document.getElementById('ws-item-status').closest('.ws-form-group').style.display = '';
+            refreshTaskWidgets();
+        } catch (err) { alert('Error: ' + err.message); }
+        return;
+    }
+
     const payload = { title, description, status };
     if (!id) payload.item_type = itemType;
 
@@ -1434,7 +1804,6 @@ async function saveTrackedItem(e) {
         if (!res.ok) throw new Error(data.error || 'Failed');
         closeWorkspaceModal();
         loadWorkspaceMetrics();
-        // Re-render all tracked item widgets
         if (workspaceConfig) {
             workspaceConfig.widgets.forEach(wId => {
                 const wDef = workspaceConfig.widgetDefinitions[wId];
@@ -1523,7 +1892,8 @@ function renderDashboard(newsData) {
 ========================= */
 function showTab(tab) {
   currentTab = tab;
-  
+  closeMobileSidebar();
+
   // UI Update
   document.querySelectorAll('.sidebar-nav button').forEach(b => b.classList.remove('active'));
   const btn = document.getElementById(`tab-${tab}`);
@@ -1534,7 +1904,6 @@ function showTab(tab) {
   const dashContainer = document.getElementById('dashboard-container');
   const nlaContainer = document.getElementById('nla-container');
   const statsContainer = document.getElementById('stats-container');
-  const archiveContainer = document.getElementById('archive-container');
   const adminContainer = document.getElementById('admin-container');
   const workspaceContainer = document.getElementById('workspace-container');
 
@@ -1547,7 +1916,6 @@ function showTab(tab) {
   if(dashContainer) dashContainer.style.display = 'none';
   if(nlaContainer) nlaContainer.style.display = 'none';
   if(statsContainer) statsContainer.style.display = 'none';
-  if(archiveContainer) archiveContainer.style.display = 'none';
   if(adminContainer) adminContainer.style.display = 'none';
   if(workspaceContainer) workspaceContainer.style.display = 'none';
   if(filters) filters.style.display = 'flex';
@@ -1579,12 +1947,6 @@ function showTab(tab) {
     if(tabTitle) tabTitle.innerText = 'IT Ecosystem Statistics';
     if(statsContainer) statsContainer.style.display = 'block';
     loadStats();
-
-  } else if (tab === 'archive') {
-    if(tabTitle) tabTitle.innerText = 'Research Archive';
-    if(archiveContainer) archiveContainer.style.display = 'block';
-    if(filters) filters.style.display = 'none';
-    loadArchive();
 
   } else if (tab === 'workspace') {
     if(tabTitle) tabTitle.innerText = 'My Workspace';
@@ -1624,7 +1986,7 @@ function resetNews() {
    📰 LOAD NEWS
 ========================= */
 async function loadNews() {
-  if (currentTab === 'dashboard' || currentTab === 'archive') return;
+  if (currentTab === 'dashboard') return;
   if (isLoading) return;
   isLoading = true;
 
@@ -1722,15 +2084,19 @@ async function loadStats() {
 /* =========================
    🧱 CREATE CARD
 ========================= */
+function handleImageError(img) {
+  img.onerror = null;
+  img.parentElement.innerHTML = '<div style="width:100%;height:100%;background:#e2e8f0;display:flex;align-items:center;justify-content:center;color:#94a3b8;"><i class="fa-solid fa-image fa-2x"></i></div>';
+}
+
 function createCard(container, item) {
   const card = document.createElement('div');
   card.className = 'news-card';
 
   const placeholderHTML = `<div style="width:100%;height:100%;background:#e2e8f0;display:flex;align-items:center;justify-content:center;color:#94a3b8;"><i class="fa-solid fa-spinner fa-spin fa-2x"></i></div>`;
-  const noImageHTML = `<div style="width:100%;height:100%;background:#e2e8f0;display:flex;align-items:center;justify-content:center;color:#94a3b8;"><i class="fa-solid fa-image fa-2x"></i></div>`;
   let imageHTML = `<div class="card-image-wrapper">`;
   if (item.image) {
-    imageHTML += `<img src="${item.image}" onerror="this.onerror=null;this.parentElement.innerHTML=\`${noImageHTML}\`">`;
+    imageHTML += `<img src="${item.image}" onerror="handleImageError(this)">`;
   } else {
     // Show loading spinner, then lazy-load og:image from article URL
     imageHTML += placeholderHTML;
@@ -1822,7 +2188,7 @@ function createCard(container, item) {
       .then(data => {
         if (data.image) {
           item.image = data.image;
-          wrapper.innerHTML = `<img src="${data.image}" onerror="this.onerror=null;this.parentElement.innerHTML='<div style=\\'width:100%;height:100%;background:#e2e8f0;display:flex;align-items:center;justify-content:center;color:#94a3b8;\\'><i class=\\'fa-solid fa-image fa-2x\\'></i></div>'">`;
+          wrapper.innerHTML = `<img src="${data.image}" onerror="handleImageError(this)">`;
         } else {
           wrapper.innerHTML = `<div style="width:100%;height:100%;background:#e2e8f0;display:flex;align-items:center;justify-content:center;color:#94a3b8;"><i class="fa-solid fa-image fa-2x"></i></div>`;
         }
@@ -1849,6 +2215,14 @@ function toggleGenerateButton() {
 window.onload = async () => {
   await fetchCurrentUser();
   showTab('all');
+
+  // Start notification polling
+  loadUnreadCount();
+  setInterval(loadUnreadCount, 60000);
+
+  // Start chat unread polling
+  loadChatUnreadCount();
+  setInterval(loadChatUnreadCount, 30000);
 
   const genBtn = document.getElementById('generate-report-btn');
   if(genBtn) {
@@ -1926,80 +2300,91 @@ let nlaState = {
     selectedTopic: null
 };
 
-// 🇺🇿 UZBEKISTAN SECTORS (Lex.uz)
-const UZ_SECTORS = [
-    { name: "Digital Economy", query: "raqamli iqtisodiyot", icon: "fa-chart-line" },
-    { name: "IT & Startups", query: "startap", icon: "fa-rocket" },
-    { name: "Crypto Assets", query: "kripto-aktiv", icon: "fa-bitcoin-sign" },
-    { name: "Artificial Intelligence", query: "sun'iy intellekt", icon: "fa-brain" },
-    { name: "E-Government", query: "elektron hukumat", icon: "fa-building-columns" },
-    { name: "Cybersecurity", query: "kiberxavfsizlik", icon: "fa-shield-halved" },
-    { name: "IT Education", query: "axborot texnologiyalari ta'lim", icon: "fa-graduation-cap" }
-];
-
-// 🇰🇿 KAZAKHSTAN SECTORS (Adilet)
-const KZ_SECTORS = [
-    { name: "Astana Hub", query: "Astana Hub", icon: "fa-hubspot" },
-    { name: "Digital Assets", query: "цифровые активы", icon: "fa-coins" },
-    { name: "Informatization", query: "информатизация", icon: "fa-network-wired" },
-    { name: "Venture Capital", query: "венчурное финансирование", icon: "fa-hand-holding-dollar" },
-    { name: "Cybersecurity", query: "кибербезопасность", icon: "fa-user-shield" }
-];
-
-// 🇸🇬 SINGAPORE SECTORS (SSO)
-const SG_SECTORS = [
-    { name: "Smart Nation", query: "Smart Nation", icon: "fa-city" },
-    { name: "Fintech & Payments", query: "Payment Services", icon: "fa-wallet" },
-    { name: "Artificial Intelligence", query: "Computer Misuse", icon: "fa-brain" },
-    { name: "Cybersecurity", query: "Cybersecurity", icon: "fa-user-shield" },
-    { name: "Personal Data (PDPA)", query: "Personal Data Protection", icon: "fa-id-card" }
-];
-
-// 🇬🇧 UNITED KINGDOM SECTORS (Legislation.gov.uk)
-const UK_SECTORS = [
-    { name: "Online Safety", query: "Online Safety", icon: "fa-child-reaching" },
-    { name: "Data Protection", query: "Data Protection", icon: "fa-database" },
-    { name: "Digital Markets", query: "Digital Markets", icon: "fa-shop" },
-    { name: "Artificial Intelligence", query: "Artificial Intelligence", icon: "fa-robot" }
-];
-
-// 🇺🇸 USA SECTORS
-const US_SECTORS = [
-    { name: "Artificial Intelligence", query: "Artificial Intelligence", icon: "fa-brain" },
-    { name: "Cybersecurity", query: "Cybersecurity", icon: "fa-user-shield" },
-    { name: "CHIPS Act", query: "CHIPS Act", icon: "fa-microchip" },
-    { name: "Data Privacy", query: "Data Privacy", icon: "fa-user-lock" }
-];
-
-// 🇪🇪 ESTONIA SECTORS
-const EE_SECTORS = [
-    { name: "Electronic ID", query: "Electronic Identification", icon: "fa-id-card-clip" },
-    { name: "Cybersecurity", query: "Cybersecurity Act", icon: "fa-shield-virus" },
-    { name: "Digital Signature", query: "Digital Signature", icon: "fa-file-signature" },
-    { name: "Public Information", query: "Public Information Act", icon: "fa-users-viewfinder" }
-];
-
-// 🇨🇳 CHINA SECTORS (Queries in English -> Found via Bing)
-const CN_SECTORS = [
-    { name: "Personal Information", query: "Personal Information Protection", icon: "fa-id-badge" },
-    { name: "Data Security", query: "Data Security Law", icon: "fa-database" },
-    { name: "Cybersecurity", query: "Cybersecurity Law", icon: "fa-shield-halved" },
-    { name: "E-Commerce", query: "E-Commerce Law", icon: "fa-cart-shopping" }
-];
-
-// 🇵🇱 POLAND SECTORS (Queries in Polish)
-const PL_SECTORS = [
-    { name: "Cybersecurity (KSC)", query: "krajowym systemie cyberbezpieczeństwa", icon: "fa-shield" },
-    { name: "Informatization", query: "informatyzacji działalności", icon: "fa-computer" },
-    { name: "Data Protection", query: "ochronie danych osobowych", icon: "fa-user-shield" }
-];
-
-// 🇻🇳 VIETNAM SECTORS (Queries in Vietnamese)
-const VN_SECTORS = [
-    { name: "E-Transactions", query: "giao dịch điện tử", icon: "fa-comments-dollar" },
-    { name: "Cybersecurity", query: "an ninh mạng", icon: "fa-user-secret" },
-    { name: "Information Tech", query: "công nghệ thông tin", icon: "fa-laptop" }
-];
+// Curated IT legislation directory — direct links to official sources
+const NLA_DIRECTORY = {
+    uz: {
+        name: 'Uzbekistan', laws: [
+            { title: 'On IT Park — Tax & customs benefits for IT companies', icon: 'fa-building', url: 'https://lex.uz/docs/4521049', source: 'Lex.uz' },
+            { title: 'On the Digital Economy — Development framework', icon: 'fa-chart-line', url: 'https://lex.uz/docs/5031048', source: 'Lex.uz' },
+            { title: 'On E-Government — Digital public services', icon: 'fa-building-columns', url: 'https://lex.uz/docs/5765514', source: 'Lex.uz' },
+            { title: 'On Startups — Support and incentives for startups', icon: 'fa-rocket', url: 'https://lex.uz/docs/5841063', source: 'Lex.uz' },
+            { title: 'On Personal Data — Data protection regulation', icon: 'fa-user-shield', url: 'https://lex.uz/docs/4396428', source: 'Lex.uz' },
+            { title: 'On Cybersecurity — National cybersecurity framework', icon: 'fa-shield-halved', url: 'https://lex.uz/docs/6212038', source: 'Lex.uz' },
+            { title: 'On Crypto Assets — Regulation of digital assets', icon: 'fa-bitcoin-sign', url: 'https://lex.uz/docs/5841188', source: 'Lex.uz' },
+            { title: 'On E-Commerce — Electronic commerce regulation', icon: 'fa-cart-shopping', url: 'https://lex.uz/docs/4867583', source: 'Lex.uz' },
+            { title: 'On Artificial Intelligence — AI development decree', icon: 'fa-brain', url: 'https://lex.uz/docs/6343010', source: 'Lex.uz' },
+            { title: 'On IT Education — IT training programs', icon: 'fa-graduation-cap', url: 'https://lex.uz/docs/5544384', source: 'Lex.uz' },
+        ]
+    },
+    kz: {
+        name: 'Kazakhstan', laws: [
+            { title: 'Astana Hub — International tech park of IT startups', icon: 'fa-hubspot', url: 'https://adilet.zan.kz/rus/docs/P1800000949', source: 'Adilet' },
+            { title: 'On Informatization — Digital infrastructure law', icon: 'fa-network-wired', url: 'https://adilet.zan.kz/rus/docs/Z1500000418', source: 'Adilet' },
+            { title: 'On Personal Data — Data protection', icon: 'fa-user-shield', url: 'https://adilet.zan.kz/rus/docs/Z1300000094', source: 'Adilet' },
+            { title: 'On Digital Assets — Cryptocurrency regulation', icon: 'fa-coins', url: 'https://adilet.zan.kz/rus/docs/Z2300000047', source: 'Adilet' },
+            { title: 'On Venture Financing — VC and startup investment', icon: 'fa-hand-holding-dollar', url: 'https://adilet.zan.kz/rus/docs/Z1800000169', source: 'Adilet' },
+            { title: 'Digital Kazakhstan Program — National digitalization', icon: 'fa-laptop-code', url: 'https://adilet.zan.kz/rus/docs/P1700000827', source: 'Adilet' },
+        ]
+    },
+    sg: {
+        name: 'Singapore', laws: [
+            { title: 'Personal Data Protection Act (PDPA)', icon: 'fa-id-card', url: 'https://sso.agc.gov.sg/Act/PDPA2012', source: 'SSO' },
+            { title: 'Cybersecurity Act 2018', icon: 'fa-shield-halved', url: 'https://sso.agc.gov.sg/Act/CA2018', source: 'SSO' },
+            { title: 'Payment Services Act 2019 — Fintech regulation', icon: 'fa-wallet', url: 'https://sso.agc.gov.sg/Act/PSA2019', source: 'SSO' },
+            { title: 'Computer Misuse Act — Cybercrime law', icon: 'fa-bug', url: 'https://sso.agc.gov.sg/Act/CMA1993', source: 'SSO' },
+            { title: 'Electronic Transactions Act', icon: 'fa-file-signature', url: 'https://sso.agc.gov.sg/Act/ETA2010', source: 'SSO' },
+        ]
+    },
+    gb: {
+        name: 'United Kingdom', laws: [
+            { title: 'Online Safety Act 2023', icon: 'fa-child-reaching', url: 'https://www.legislation.gov.uk/ukpga/2023/50/contents', source: 'Legislation.gov.uk' },
+            { title: 'Data Protection Act 2018 (UK GDPR)', icon: 'fa-database', url: 'https://www.legislation.gov.uk/ukpga/2018/12/contents', source: 'Legislation.gov.uk' },
+            { title: 'Digital Markets, Competition and Consumers Act 2024', icon: 'fa-shop', url: 'https://www.legislation.gov.uk/ukpga/2024/13/contents', source: 'Legislation.gov.uk' },
+            { title: 'Computer Misuse Act 1990', icon: 'fa-bug', url: 'https://www.legislation.gov.uk/ukpga/1990/18/contents', source: 'Legislation.gov.uk' },
+            { title: 'Investigatory Powers Act 2016', icon: 'fa-eye', url: 'https://www.legislation.gov.uk/ukpga/2016/25/contents', source: 'Legislation.gov.uk' },
+        ]
+    },
+    us: {
+        name: 'United States', laws: [
+            { title: 'CHIPS and Science Act 2022 — Semiconductor investment', icon: 'fa-microchip', url: 'https://www.congress.gov/bill/117th-congress/house-bill/4346', source: 'Congress.gov' },
+            { title: 'AI Executive Order 14110 — Safe AI development', icon: 'fa-brain', url: 'https://www.whitehouse.gov/briefing-room/presidential-actions/2023/10/30/executive-order-on-the-safe-secure-and-trustworthy-development-and-use-of-artificial-intelligence/', source: 'White House' },
+            { title: 'Cybersecurity Information Sharing Act (CISA)', icon: 'fa-shield-halved', url: 'https://www.congress.gov/bill/114th-congress/senate-bill/754', source: 'Congress.gov' },
+            { title: 'Computer Fraud and Abuse Act (CFAA)', icon: 'fa-bug', url: 'https://www.law.cornell.edu/uscode/text/18/1030', source: 'Cornell Law' },
+            { title: 'Digital Millennium Copyright Act (DMCA)', icon: 'fa-copyright', url: 'https://www.congress.gov/bill/105th-congress/house-bill/2281', source: 'Congress.gov' },
+        ]
+    },
+    ee: {
+        name: 'Estonia', laws: [
+            { title: 'E-Residency Program — Digital identity for non-residents', icon: 'fa-id-card-clip', url: 'https://www.riigiteataja.ee/en/eli/530102013080/consolide', source: 'Riigi Teataja' },
+            { title: 'Cybersecurity Act', icon: 'fa-shield-virus', url: 'https://www.riigiteataja.ee/en/eli/523052023006/consolide', source: 'Riigi Teataja' },
+            { title: 'Digital Signatures Act', icon: 'fa-file-signature', url: 'https://www.riigiteataja.ee/en/eli/530102013073/consolide', source: 'Riigi Teataja' },
+            { title: 'Public Information Act — Open data regulation', icon: 'fa-users-viewfinder', url: 'https://www.riigiteataja.ee/en/eli/514112013001/consolide', source: 'Riigi Teataja' },
+            { title: 'Personal Data Protection Act', icon: 'fa-user-shield', url: 'https://www.riigiteataja.ee/en/eli/523012019001/consolide', source: 'Riigi Teataja' },
+        ]
+    },
+    cn: {
+        name: 'China', laws: [
+            { title: 'Personal Information Protection Law (PIPL)', icon: 'fa-id-badge', url: 'http://www.npc.gov.cn/npc/c30834/202108/a8c4e3672c74491a80b53a172bb753fe.shtml', source: 'NPC' },
+            { title: 'Data Security Law', icon: 'fa-database', url: 'http://www.npc.gov.cn/npc/c30834/202106/7c9af12f51334a73b56d7938f99a788a.shtml', source: 'NPC' },
+            { title: 'Cybersecurity Law', icon: 'fa-shield-halved', url: 'http://www.npc.gov.cn/npc/c12435/201611/cbda4e47a6ab45e79cfb4ff58ce52aad.shtml', source: 'NPC' },
+            { title: 'E-Commerce Law', icon: 'fa-cart-shopping', url: 'http://www.npc.gov.cn/npc/c12435/201808/f8a87e8ef84d4c3c9af202e992f5b28a.shtml', source: 'NPC' },
+        ]
+    },
+    pl: {
+        name: 'Poland', laws: [
+            { title: 'National Cybersecurity System Act (KSC)', icon: 'fa-shield', url: 'https://isap.sejm.gov.pl/isap.nsf/DocDetails.xsp?id=WDU20180001560', source: 'ISAP Sejm' },
+            { title: 'Informatization of Public Entities Act', icon: 'fa-computer', url: 'https://isap.sejm.gov.pl/isap.nsf/DocDetails.xsp?id=WDU20050640565', source: 'ISAP Sejm' },
+            { title: 'Personal Data Protection Act', icon: 'fa-user-shield', url: 'https://isap.sejm.gov.pl/isap.nsf/DocDetails.xsp?id=WDU20180001000', source: 'ISAP Sejm' },
+        ]
+    },
+    vn: {
+        name: 'Vietnam', laws: [
+            { title: 'Law on Cybersecurity 2018', icon: 'fa-user-secret', url: 'https://thuvienphapluat.vn/van-ban/Cong-nghe-thong-tin/Luat-an-ninh-mang-2018-351416.aspx', source: 'VBPL' },
+            { title: 'Law on E-Transactions 2023', icon: 'fa-comments-dollar', url: 'https://thuvienphapluat.vn/van-ban/Cong-nghe-thong-tin/Luat-Giao-dich-dien-tu-2023-567240.aspx', source: 'VBPL' },
+            { title: 'Law on Information Technology', icon: 'fa-laptop', url: 'https://thuvienphapluat.vn/van-ban/Cong-nghe-thong-tin/Luat-Cong-nghe-thong-tin-2006-67-2006-QH11-12695.aspx', source: 'VBPL' },
+        ]
+    }
+};
 
 /* =========================
    ⚖️ MAIN RENDER FUNCTION
@@ -2007,30 +2392,26 @@ const VN_SECTORS = [
 async function renderNLA() {
     const container = document.getElementById('nla-grid');
     const breadcrumbs = document.getElementById('nla-breadcrumbs');
-    container.innerHTML = '<div class="spinner"></div>';
 
     // ------------------------------------------
     // STEP 0: SELECT COUNTRY
     // ------------------------------------------
     if (nlaState.step === 0) {
         if(breadcrumbs) breadcrumbs.innerHTML = 'Select Jurisdiction';
-        
-        const res = await fetch('/nla/countries');
-        const countries = await res.json();
-        
         container.className = 'nla-grid-countries';
         container.innerHTML = '';
 
-        countries.forEach(c => {
+        const countries = Object.entries(NLA_DIRECTORY);
+        countries.forEach(([code, data]) => {
             const div = document.createElement('div');
             div.className = 'nla-country-card';
             div.innerHTML = `
-                <img src="https://flagcdn.com/${c.country_code}.svg" width="60">
-                <h3>${c.country_name}</h3>
-                <small style="color:#64748b;">${c.type}</small>
+                <img src="https://flagcdn.com/${code}.svg" width="60">
+                <h3>${data.name}</h3>
+                <small style="color:#64748b;">${data.laws.length} IT laws</small>
             `;
             div.onclick = () => {
-                nlaState.selectedCountry = c.country_code;
+                nlaState.selectedCountry = code;
                 nlaState.step = 1;
                 renderNLA();
             };
@@ -2039,131 +2420,34 @@ async function renderNLA() {
     }
 
     // ------------------------------------------
-    // STEP 1: SELECT CATEGORY
+    // STEP 1: SHOW LAWS — click to open source
     // ------------------------------------------
     else if (nlaState.step === 1) {
-        if(breadcrumbs) breadcrumbs.innerHTML = `<span onclick="resetNLA()" style="cursor:pointer; color:#2563eb;">Countries</span> > Select Topic`;
-        
-        let sectors = [];
         const c = nlaState.selectedCountry;
+        const data = NLA_DIRECTORY[c];
+        if (!data) { resetNLA(); return; }
 
-        if (c === 'uz') sectors = UZ_SECTORS;
-        else if (c === 'kz') sectors = KZ_SECTORS;
-        else if (c === 'sg') sectors = SG_SECTORS;
-        else if (c === 'gb') sectors = UK_SECTORS;
-        else if (c === 'us') sectors = US_SECTORS;
-        else if (c === 'ee') sectors = EE_SECTORS;
-        else if (c === 'cn') sectors = CN_SECTORS;
-        else if (c === 'pl') sectors = PL_SECTORS;
-        else if (c === 'vn') sectors = VN_SECTORS;
+        if(breadcrumbs) breadcrumbs.innerHTML = `<span onclick="resetNLA()" style="cursor:pointer; color:#2563eb;"><i class="fa-solid fa-arrow-left"></i> All Countries</span> &rsaquo; <img src="https://flagcdn.com/${c}.svg" width="20" style="vertical-align:middle; border-radius:2px;"> ${data.name}`;
 
-        container.className = 'nla-grid-countries';
+        container.className = 'nla-list-view';
         container.innerHTML = '';
 
-        sectors.forEach(sector => {
+        data.laws.forEach(law => {
             const div = document.createElement('div');
-            div.className = 'nla-country-card';
+            div.className = 'nla-law-card nla-law-link';
+            div.onclick = () => window.open(law.url, '_blank');
             div.innerHTML = `
-                <div style="font-size:2rem; color:var(--primary); margin-bottom:10px;">
-                    <i class="fa-solid ${sector.icon} fa-fw"></i>
+                <div class="nla-card-header">
+                    <div class="nla-icon-box"><i class="fa-solid ${law.icon}"></i></div>
+                    <div style="flex:1;">
+                        <h4 class="nla-card-title">${law.title}</h4>
+                        <div class="nla-card-meta"><span>${law.source}</span></div>
+                    </div>
+                    <i class="fa-solid fa-arrow-up-right-from-square" style="color:var(--primary); font-size:0.85rem;"></i>
                 </div>
-                <h3>${sector.name}</h3>
-                <small style="color:#64748b;">Search Official DB</small>
             `;
-            div.onclick = () => {
-                nlaState.selectedCategory = sector.query;
-                nlaState.step = 2;
-                renderNLA();
-            };
             container.appendChild(div);
         });
-    }
-
-    // ------------------------------------------
-    // STEP 2: SHOW RESULTS
-    // ------------------------------------------
-    else if (nlaState.step === 2) {
-        if(breadcrumbs) breadcrumbs.innerHTML = `<span onclick="backToStep(1)" style="cursor:pointer; color:#2563eb;">Topics</span> > Results`;
-        
-        const c = nlaState.selectedCountry;
-        let apiEndpoint = `/nla/live/search?query=${nlaState.selectedCategory}`; // Default UZ
-        
-        if (c === 'kz') apiEndpoint = `/nla/live/kz/search?query=${nlaState.selectedCategory}`;
-        else if (c === 'sg') apiEndpoint = `/nla/live/sg/search?query=${nlaState.selectedCategory}`;
-        else if (c === 'gb') apiEndpoint = `/nla/live/uk/search?query=${nlaState.selectedCategory}`;
-        else if (c === 'us') apiEndpoint = `/nla/live/us/search?query=${nlaState.selectedCategory}`;
-        else if (c === 'ee') apiEndpoint = `/nla/live/ee/search?query=${nlaState.selectedCategory}`;
-        else if (c === 'cn') apiEndpoint = `/nla/live/cn/search?query=${nlaState.selectedCategory}`;
-        else if (c === 'pl') apiEndpoint = `/nla/live/pl/search?query=${nlaState.selectedCategory}`;
-        else if (c === 'vn') apiEndpoint = `/nla/live/vn/search?query=${nlaState.selectedCategory}`;
-
-        container.innerHTML = `<div class="spinner"></div><p style="text-align:center">Connecting to official database...</p>`;
-        container.className = 'nla-list-view';
-
-        try {
-            const res = await fetch(apiEndpoint);
-            const results = await res.json();
-
-            container.innerHTML = '';
-            if (!results || results.length === 0) {
-                container.innerHTML = '<div style="text-align:center; padding:20px;">No direct matches found.</div>';
-                return;
-            }
-
-            results.forEach(doc => {
-                const div = document.createElement('div');
-                div.className = 'nla-law-card'; 
-                
-                let btns = '';
-                
-                // --- Download/Link Logic based on Country ---
-                if (c === 'uz') {
-                    btns = `<a href="/nla/download/${doc.id}" target="_blank" class="btn-lang btn-uz"><b>Download (UZ)</b></a>
-                            <a href="https://lex.uz/ru/docs/${doc.id}" target="_blank" class="btn-lang btn-ru"><b>View RU</b></a>`;
-                }
-                else if (c === 'kz') {
-                    btns = `<a href="/nla/live/kz/download/${doc.id}" target="_blank" class="btn-lang btn-ru"><i class="fa-solid fa-file-word"></i> <b>Download</b></a>
-                            <a href="${doc.url}" target="_blank" class="btn-lang btn-en"><b>Adilet</b></a>`;
-                }
-                else if (c === 'sg') {
-                    btns = `<a href="${doc.pdf}" target="_blank" class="btn-lang btn-en" style="background:#e0f2fe; color:#0284c7;"><i class="fa-solid fa-file-pdf"></i> <b>PDF</b></a>
-                            <a href="${doc.url}" target="_blank" class="btn-lang btn-en"><b>View SSO</b></a>`;
-                }
-                else if (c === 'gb') {
-                    btns = `<a href="${doc.pdf}" target="_blank" class="btn-lang btn-en" style="background:#fce7f3; color:#831843;"><i class="fa-solid fa-file-pdf"></i> <b>PDF</b></a>
-                            <a href="${doc.url}" target="_blank" class="btn-lang btn-en"><b>Legislation.gov.uk</b></a>`;
-                }
-                else if (c === 'us') {
-                    btns = `<a href="${doc.url}" target="_blank" class="btn-lang btn-en" style="background:#1e3a8a; color:white;"><i class="fa-solid fa-landmark"></i> <b>Congress.gov</b></a>`;
-                }
-                else if (c === 'ee') {
-                    btns = `<a href="${doc.url}" target="_blank" class="btn-lang btn-en" style="background:#0072CE; color:white;"><i class="fa-solid fa-scale-balanced"></i> <b>Riigi Teataja</b></a>`;
-                }
-                else if (c === 'cn') {
-                    btns = `<a href="${doc.url}" target="_blank" class="btn-lang btn-en" style="background:#de2910; color:#ffde00;"><i class="fa-solid fa-gavel"></i> <b>Official DB</b></a>`;
-                }
-                else if (c === 'pl') {
-                    btns = `<a href="${doc.url}" target="_blank" class="btn-lang btn-en" style="background:#dc143c; color:white;"><b>ISAP Sejm</b></a>`;
-                }
-                else if (c === 'vn') {
-                    btns = `<a href="${doc.url}" target="_blank" class="btn-lang btn-en" style="background:#da251d; color:#ffcd00;"><b>VBPL</b></a>`;
-                }
-
-                div.innerHTML = `
-                    <div class="nla-card-header">
-                        <div class="nla-icon-box"><i class="fa-solid fa-scale-balanced"></i></div>
-                        <div>
-                            <h4 class="nla-card-title">${doc.title}</h4>
-                            <div class="nla-card-meta"><span>${doc.date}</span> • <span>${doc.issuer}</span></div>
-                        </div>
-                    </div>
-                    <div class="nla-download-group">${btns}</div>
-                `;
-                container.appendChild(div);
-            });
-        } catch (e) {
-            container.innerHTML = '<div style="color:red; text-align:center;">Connection Error.</div>';
-        }
     }
 }
 
@@ -2207,392 +2491,285 @@ async function loadLawContent(id) {
     `;
 }
 
-/* =========================================
-   RESEARCH ARCHIVE
-   ========================================= */
+/* =========================
+   💬 PERSONAL CHAT (1-on-1)
+========================= */
 
-let archiveData = [];
-let archiveTopics = [];
-let activeArchiveTopic = '';
-let archiveViewMode = 'list';
+let _chatCurrentUserId = null;
+let _chatCurrentUserName = '';
 
-const DOC_TYPE_ICONS = {
-    article: 'fa-file-lines',
-    report: 'fa-chart-bar',
-    brief: 'fa-file-contract',
-    presentation: 'fa-file-powerpoint',
-    analysis: 'fa-magnifying-glass-chart'
-};
+function toggleChatPanel() {
+    _chatPanelOpen = !_chatPanelOpen;
+    const overlay = document.getElementById('chat-overlay');
+    if (_chatPanelOpen) {
+        overlay.classList.add('open');
+        showChatContactList();
+    } else {
+        closeChat();
+    }
+}
 
-const DOC_TYPE_COLORS = {
-    article: '#3b82f6',
-    report: '#8b5cf6',
-    brief: '#f59e0b',
-    presentation: '#ef4444',
-    analysis: '#10b981'
-};
+function closeChat() {
+    _chatPanelOpen = false;
+    document.getElementById('chat-overlay')?.classList.remove('open');
+    stopChatPolling();
+    _chatCurrentUserId = null;
+}
 
-const DOC_TYPE_LABELS = {
-    article: 'Articles',
-    report: 'Reports',
-    brief: 'Briefs',
-    presentation: 'Presentations',
-    analysis: 'Analyses'
-};
+function closeChatOnOverlay(event) {
+    if (event.target === event.currentTarget) closeChat();
+}
 
-async function loadArchive() {
-    const list = document.getElementById('archive-list');
-    const topicsBar = document.getElementById('archive-topics');
-    const statsBar = document.getElementById('archive-stats-bar');
-    const addBtn = document.getElementById('archive-add-btn');
+async function showChatContactList() {
+    const listEl = document.getElementById('chat-department-list');
+    const roomEl = document.getElementById('chat-room');
+    const backBtn = document.getElementById('chat-back-btn');
+    const titleEl = document.getElementById('chat-panel-title');
 
-    // Show skeleton loading
-    list.innerHTML = Array(3).fill(`
-        <div class=”archive-skeleton”>
-            <div class=”archive-skeleton-icon”></div>
-            <div class=”archive-skeleton-body”>
-                <div class=”archive-skeleton-line”></div>
-                <div class=”archive-skeleton-line short”></div>
-                <div class=”archive-skeleton-line shorter”></div>
-            </div>
+    listEl.style.display = 'block';
+    roomEl.style.display = 'none';
+    backBtn.style.display = 'none';
+    titleEl.innerHTML = '<i class="fa-solid fa-comments"></i> Messages';
+
+    stopChatPolling();
+    _chatCurrentUserId = null;
+
+    let contacts = [];
+    try {
+        const res = await fetch('/chat/contacts', { credentials: 'include' });
+        if (res.ok) contacts = await res.json();
+    } catch {}
+
+    // Split: users with conversations first (sorted by last message), then rest by department
+    const withMsg = contacts.filter(c => c.last_message);
+    const withoutMsg = contacts.filter(c => !c.last_message);
+
+    // Group the rest by department
+    const deptGroups = {};
+    withoutMsg.forEach(c => {
+        const dept = c.department || 'General';
+        if (!deptGroups[dept]) deptGroups[dept] = [];
+        deptGroups[dept].push(c);
+    });
+
+    let html = '';
+
+    // Recent conversations
+    if (withMsg.length) {
+        html += `<div class="chat-section-title">Recent</div>`;
+        for (const u of withMsg) {
+            html += renderContactItem(u);
+        }
+    }
+
+    // All contacts by department
+    const sortedDepts = Object.keys(deptGroups).sort();
+    for (const dept of sortedDepts) {
+        html += `<div class="chat-section-title">${escapeHtml(dept)}</div>`;
+        for (const u of deptGroups[dept]) {
+            html += renderContactItem(u);
+        }
+    }
+
+    if (!contacts.length) {
+        html = '<div style="text-align:center; padding:40px; color:var(--text-muted);">No contacts found</div>';
+    }
+
+    listEl.innerHTML = html;
+}
+
+function renderContactItem(u) {
+    const avatar = u.photo_url || `https://ui-avatars.com/api/?name=${encodeURIComponent(u.name || 'U')}&background=2563eb&color=fff&size=40`;
+    const isMe = u.last_sender_id === currentUser?.id;
+    const lastMsg = u.last_message
+        ? `${isMe ? 'You: ' : ''}${escapeHtml(chatTruncate(u.last_message, 30))}`
+        : `<span style="opacity:0.4">${escapeHtml(u.department || '')}</span>`;
+    const timeAgo = u.last_message_at ? formatChatTime(u.last_message_at) : '';
+    const unread = u.unread_count > 0 ? `<span class="chat-contact-unread">${u.unread_count}</span>` : '';
+
+    return `<div class="chat-contact-item" onclick="openPersonalChat('${u.id}', '${escapeHtml(u.name).replace(/'/g, "\\'")}')">
+        <img class="chat-contact-avatar" src="${escapeHtml(avatar)}" alt="">
+        <div class="chat-contact-info">
+            <div class="chat-contact-name">${escapeHtml(u.name)}${u.role === 'head' ? ' <span class="chat-role-badge">Head</span>' : ''}${u.role === 'admin' ? ' <span class="chat-role-badge admin">Admin</span>' : ''}</div>
+            <div class="chat-contact-preview">${lastMsg}</div>
         </div>
-    `).join('');
+        <div class="chat-contact-meta">
+            ${timeAgo ? `<div class="chat-contact-time">${timeAgo}</div>` : ''}
+            ${unread}
+        </div>
+    </div>`;
+}
 
-    if (currentUser && currentUser.role === 'admin') addBtn.style.display = 'inline-flex';
-    else addBtn.style.display = 'none';
+async function openPersonalChat(userId, userName) {
+    const listEl = document.getElementById('chat-department-list');
+    const roomEl = document.getElementById('chat-room');
+    const backBtn = document.getElementById('chat-back-btn');
+    const titleEl = document.getElementById('chat-panel-title');
+
+    listEl.style.display = 'none';
+    roomEl.style.display = 'flex';
+    backBtn.style.display = 'flex';
+    titleEl.textContent = userName;
+
+    _chatCurrentUserId = userId;
+    _chatCurrentUserName = userName;
+    _chatLastMessageId = 0;
+
+    const msgContainer = document.getElementById('chat-messages');
+    msgContainer.innerHTML = '<div style="text-align:center; padding:40px; color:var(--text-muted);"><i class="fa-solid fa-spinner fa-spin"></i> Loading...</div>';
 
     try {
-        const [topicsRes, itemsRes] = await Promise.all([
-            fetch('/archive-topics'),
-            fetch(activeArchiveTopic ? `/archive?topic=${encodeURIComponent(activeArchiveTopic)}` : '/archive')
-        ]);
-        archiveTopics = await topicsRes.json();
-        archiveData = await itemsRes.json();
-
-        // Render stats bar
-        const total = archiveTopics.reduce((s, t) => s + t.count, 0);
-        const withFiles = archiveData.filter(i => i.file_name).length;
-        const typeCounts = {};
-        archiveData.forEach(i => { typeCounts[i.doc_type] = (typeCounts[i.doc_type] || 0) + 1; });
-        const topType = Object.entries(typeCounts).sort((a, b) => b[1] - a[1])[0];
-
-        statsBar.innerHTML = `
-            <div class=”archive-stat-card”>
-                <div class=”archive-stat-icon” style=”background:var(--primary-light); color:var(--primary);”><i class=”fa-solid fa-book”></i></div>
-                <div><div class=”archive-stat-value”>${total}</div><div class=”archive-stat-label”>Total Documents</div></div>
-            </div>
-            <div class=”archive-stat-card”>
-                <div class=”archive-stat-icon” style=”background:#ede9fe; color:#7c3aed;”><i class=”fa-solid fa-tags”></i></div>
-                <div><div class=”archive-stat-value”>${archiveTopics.length}</div><div class=”archive-stat-label”>Topics</div></div>
-            </div>
-            <div class=”archive-stat-card”>
-                <div class=”archive-stat-icon” style=”background:#e0f2fe; color:#0284c7;”><i class=”fa-solid fa-paperclip”></i></div>
-                <div><div class=”archive-stat-value”>${withFiles}</div><div class=”archive-stat-label”>With Files</div></div>
-            </div>
-            ${topType ? `<div class=”archive-stat-card”>
-                <div class=”archive-stat-icon” style=”background:${DOC_TYPE_COLORS[topType[0]]}15; color:${DOC_TYPE_COLORS[topType[0]]};”><i class=”fa-solid ${DOC_TYPE_ICONS[topType[0]] || 'fa-file'}”></i></div>
-                <div><div class=”archive-stat-value”>${topType[1]}</div><div class=”archive-stat-label”>Most: ${DOC_TYPE_LABELS[topType[0]] || topType[0]}</div></div>
-            </div>` : ''}
-        `;
-
-        // Render topic chips
-        topicsBar.innerHTML = `<button onclick=”setArchiveTopic('')” class=”archive-chip ${!activeArchiveTopic ? 'active' : ''}”>All (${total})</button>` +
-            archiveTopics.map(t =>
-                `<button onclick=”setArchiveTopic('${t.topic}')” class=”archive-chip ${activeArchiveTopic === t.topic ? 'active' : ''}”>${t.topic} (${t.count})</button>`
-            ).join('');
-
-        renderArchiveList(archiveData);
-    } catch (err) {
-        console.error('Archive load error:', err);
-        list.innerHTML = '<div style=”text-align:center; padding:40px; color:#ef4444;”>Failed to load archive.</div>';
+        const res = await fetch(`/chat/messages/${encodeURIComponent(userId)}?limit=50`, { credentials: 'include' });
+        if (!res.ok) throw new Error('Failed to load');
+        _chatMessages = await res.json();
+        if (_chatMessages.length > 0) {
+            _chatLastMessageId = _chatMessages[_chatMessages.length - 1].id;
+        }
+        renderChatMessages();
+        scrollChatToBottom();
+        loadChatUnreadCount();
+    } catch {
+        msgContainer.innerHTML = '<div style="text-align:center; padding:40px; color:var(--text-muted);">Failed to load messages</div>';
     }
+
+    startChatPolling();
 }
 
-function setArchiveTopic(topic) {
-    activeArchiveTopic = topic;
-    loadArchive();
-}
-
-function filterArchive() {
-    const q = (document.getElementById('archive-search').value || '').toLowerCase().trim();
-    let filtered = archiveData;
-    if (q) {
-        filtered = archiveData.filter(item =>
-            item.title.toLowerCase().includes(q) ||
-            item.topic.toLowerCase().includes(q) ||
-            (item.summary || '').toLowerCase().includes(q) ||
-            (item.author || '').toLowerCase().includes(q) ||
-            (item.doc_type || '').toLowerCase().includes(q)
-        );
-    }
-    // Apply current sort
-    const sortBy = document.getElementById('archive-sort')?.value || 'newest';
-    if (sortBy === 'newest') filtered.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
-    else if (sortBy === 'oldest') filtered.sort((a, b) => new Date(a.created_at) - new Date(b.created_at));
-    else if (sortBy === 'title') filtered.sort((a, b) => a.title.localeCompare(b.title));
-    else if (sortBy === 'type') filtered.sort((a, b) => (a.doc_type || '').localeCompare(b.doc_type || ''));
-    renderArchiveList(filtered);
-}
-
-function renderArchiveList(items) {
-    const list = document.getElementById('archive-list');
-    const reader = document.getElementById('archive-reader');
-    reader.style.display = 'none';
-
-    if (!items.length) {
-        list.className = '';
-        list.innerHTML = `
-            <div class=”archive-empty”>
-                <div class=”archive-empty-icon”><i class=”fa-solid fa-folder-open”></i></div>
-                <h3>No research found</h3>
-                <p>${activeArchiveTopic || document.getElementById('archive-search').value
-                    ? 'Try adjusting your filters or search terms.'
-                    : 'Research articles, reports, and analyses will appear here once published.'}</p>
-            </div>`;
+function renderChatMessages() {
+    const container = document.getElementById('chat-messages');
+    if (!_chatMessages.length) {
+        container.innerHTML = `<div class="chat-empty"><i class="fa-solid fa-paper-plane"></i><p>Send a message to start the conversation</p></div>`;
         return;
     }
 
-    list.className = archiveViewMode === 'grid' ? 'archive-grid-view' : '';
+    let html = '';
+    let lastDate = '';
 
-    list.innerHTML = items.map((item, idx) => {
-        const icon = DOC_TYPE_ICONS[item.doc_type] || 'fa-file';
-        const color = DOC_TYPE_COLORS[item.doc_type] || '#64748b';
-        const date = new Date(item.created_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
-        const isAdmin = currentUser && currentUser.role === 'admin';
-        const fileExt = item.file_name ? item.file_name.split('.').pop().toUpperCase() : '';
-
-        return `
-        <div class=”archive-item” style=”animation-delay:${idx * 0.04}s” onclick=”openArchiveItem(${item.id})”>
-            <div class=”archive-item-main”>
-                <div class=”archive-item-icon” style=”background:${color}15;”>
-                    <i class=”fa-solid ${icon}” style=”color:${color};”></i>
-                </div>
-                <div class=”archive-item-body”>
-                    <div class=”archive-item-title”>${item.title}</div>
-                    ${item.summary ? `<p class=”archive-item-summary”>${item.summary}</p>` : ''}
-                </div>
-            </div>
-            <div class=”archive-item-footer”>
-                <div class=”archive-item-tags”>
-                    <span class=”archive-badge” style=”background:${color}15; color:${color};”>${item.doc_type}</span>
-                    <span class=”archive-badge-topic”>${item.topic}</span>
-                    ${item.file_name ? `<span class=”archive-badge-file”><i class=”fa-solid fa-paperclip”></i>${fileExt}</span>` : ''}
-                    ${item.author ? `<span class=”archive-item-meta-text”><i class=”fa-solid fa-user”></i> ${item.author}</span>` : ''}
-                    <span class=”archive-item-meta-text”><i class=”fa-regular fa-calendar”></i> ${date}</span>
-                </div>
-                ${isAdmin ? `<div class=”archive-item-actions”>
-                    <button onclick=”event.stopPropagation(); editArchiveItem(${item.id})” title=”Edit” class=”archive-edit-btn-sm”><i class=”fa-solid fa-pen”></i> Edit</button>
-                    <button onclick=”event.stopPropagation(); deleteArchiveItem(${item.id})” title=”Delete” class=”archive-delete-btn”><i class=”fa-solid fa-trash-can”></i> Delete</button>
-                </div>` : ''}
-            </div>
-        </div>`;
-    }).join('');
-}
-
-function setArchiveView(mode) {
-    archiveViewMode = mode;
-    document.getElementById('archive-view-list').classList.toggle('active', mode === 'list');
-    document.getElementById('archive-view-grid').classList.toggle('active', mode === 'grid');
-    renderArchiveList(archiveData);
-}
-
-function sortArchive() {
-    const sortBy = document.getElementById('archive-sort').value;
-    let sorted = [...archiveData];
-    if (sortBy === 'newest') sorted.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
-    else if (sortBy === 'oldest') sorted.sort((a, b) => new Date(a.created_at) - new Date(b.created_at));
-    else if (sortBy === 'title') sorted.sort((a, b) => a.title.localeCompare(b.title));
-    else if (sortBy === 'type') sorted.sort((a, b) => (a.doc_type || '').localeCompare(b.doc_type || ''));
-    renderArchiveList(sorted);
-}
-
-async function openArchiveItem(id) {
-    const reader = document.getElementById('archive-reader');
-    reader.style.display = 'block';
-    reader.innerHTML = `
-        <button class=”archive-reader-back” onclick=”closeArchiveReader()”>
-            <i class=”fa-solid fa-arrow-left”></i> Back to archive
-        </button>
-        <div class=”archive-reader-body” style=”text-align:center; padding:40px;”>
-            <i class=”fa-solid fa-spinner fa-spin fa-2x” style=”color:#94a3b8;”></i>
-        </div>`;
-    reader.scrollIntoView({ behavior: 'smooth', block: 'start' });
-
-    try {
-        const res = await fetch(`/archive/${id}`);
-        const item = await res.json();
-        const color = DOC_TYPE_COLORS[item.doc_type] || '#64748b';
-        const icon = DOC_TYPE_ICONS[item.doc_type] || 'fa-file';
-        const date = new Date(item.created_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' });
-        const isAdmin = currentUser && currentUser.role === 'admin';
-        const fileExt = item.file_name ? item.file_name.split('.').pop().toUpperCase() : '';
-        const fileIcon = fileExt === 'PDF' ? 'fa-file-pdf' : fileExt === 'PPTX' || fileExt === 'PPT' ? 'fa-file-powerpoint' : fileExt === 'XLSX' || fileExt === 'XLS' ? 'fa-file-excel' : 'fa-file-word';
-        const wordCount = item.content ? item.content.split(/\s+/).length : 0;
-        const readTime = Math.max(1, Math.ceil(wordCount / 200));
-
-        reader.innerHTML = `
-            <button class=”archive-reader-back” onclick=”closeArchiveReader()”>
-                <i class=”fa-solid fa-arrow-left”></i> Back to archive
-            </button>
-            <div class=”archive-reader-body”>
-                <div class=”archive-reader-header”>
-                    <div>
-                        <h2 class=”archive-reader-title”>${item.title}</h2>
-                        <div class=”archive-reader-meta”>
-                            <span class=”archive-badge” style=”background:${color}15; color:${color}; padding:4px 10px; border-radius:6px; font-size:0.8rem;”>
-                                <i class=”fa-solid ${icon}” style=”margin-right:4px;”></i>${item.doc_type}
-                            </span>
-                            <span class=”archive-badge-topic” style=”padding:4px 10px; border-radius:6px; font-size:0.8rem;”>${item.topic}</span>
-                            ${item.author ? `<span class=”archive-item-meta-text” style=”font-size:0.85rem;”><i class=”fa-solid fa-user”></i> ${item.author}</span>` : ''}
-                            <span class=”archive-item-meta-text” style=”font-size:0.85rem;”><i class=”fa-regular fa-calendar”></i> ${date}</span>
-                            ${wordCount > 0 ? `<span class=”archive-item-meta-text” style=”font-size:0.85rem;”><i class=”fa-regular fa-clock”></i> ${readTime} min read</span>` : ''}
-                        </div>
-                    </div>
-                    <div class=”archive-reader-actions”>
-                        ${isAdmin ? `<button onclick=”editArchiveItem(${item.id})” class=”archive-btn-sm”><i class=”fa-solid fa-pen”></i> Edit</button>` : ''}
-                        <button onclick=”closeArchiveReader()” class=”archive-btn-sm”><i class=”fa-solid fa-xmark”></i> Close</button>
-                    </div>
-                </div>
-                ${item.file_name ? `
-                <div class=”archive-file-card”>
-                    <div class=”archive-file-icon”><i class=”fa-solid ${fileIcon}”></i></div>
-                    <div class=”archive-file-info”>
-                        <div class=”archive-file-name”>${item.file_name}</div>
-                        <div class=”archive-file-hint”>${fileExt} document — click to download</div>
-                    </div>
-                    <a href=”/archive/${item.id}/download” class=”archive-download-btn”><i class=”fa-solid fa-download”></i> Download</a>
-                </div>` : ''}
-                ${item.summary ? `<div class=”archive-summary-box”>${item.summary}</div>` : ''}
-                <div class=”archive-content”>${item.content || '<span style=”color:#94a3b8; font-style:italic;”>No written content — see attached document above.</span>'}</div>
-                ${item.source_url ? `<div class=”archive-source-link”><a href=”${item.source_url}” target=”_blank”><i class=”fa-solid fa-arrow-up-right-from-square”></i> View original source</a></div>` : ''}
-            </div>
-        `;
-    } catch (err) {
-        reader.innerHTML = `
-            <button class=”archive-reader-back” onclick=”closeArchiveReader()”>
-                <i class=”fa-solid fa-arrow-left”></i> Back to archive
-            </button>
-            <div class=”archive-reader-body” style=”text-align:center; padding:30px; color:#ef4444;”>Failed to load article.</div>`;
-    }
-}
-
-function closeArchiveReader() {
-    const reader = document.getElementById('archive-reader');
-    reader.style.display = 'none';
-    document.getElementById('archive-list').scrollIntoView({ behavior: 'smooth', block: 'start' });
-}
-
-function showArchiveForm(item) {
-    const form = document.getElementById('archive-form');
-    form.style.display = 'block';
-    document.getElementById('archive-form-title').textContent = item ? 'Edit Research' : 'New Research';
-    document.getElementById('archive-edit-id').value = item ? item.id : '';
-    document.getElementById('arch-title').value = item ? item.title : '';
-    document.getElementById('arch-topic').value = item ? item.topic : '';
-    document.getElementById('arch-doctype').value = item ? item.doc_type : 'article';
-    document.getElementById('arch-author').value = item ? (item.author || '') : (currentUser ? currentUser.name : '');
-    document.getElementById('arch-source').value = item ? (item.source_url || '') : '';
-    document.getElementById('arch-summary').value = item ? (item.summary || '') : '';
-    document.getElementById('arch-content').value = item ? (item.content || '') : '';
-    // Reset file input
-    const fileInput = document.getElementById('arch-file');
-    if (fileInput) fileInput.value = '';
-    const fileInfo = document.getElementById('arch-file-info');
-    if (item && item.file_name) {
-        fileInfo.classList.add('show');
-        fileInfo.innerHTML = `<i class="fa-solid fa-file" style="color:var(--primary);"></i> Current: <strong>${item.file_name}</strong> <span style="color:#94a3b8; margin-left:4px;">(upload new to replace)</span>`;
-    } else {
-        fileInfo.classList.remove('show');
-        fileInfo.innerHTML = '';
-    }
-    form.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
-}
-
-function updateFileLabel(input) {
-    const fileInfo = document.getElementById('arch-file-info');
-    if (input.files.length > 0) {
-        const file = input.files[0];
-        const sizeMB = (file.size / 1024 / 1024).toFixed(1);
-        const ext = file.name.split('.').pop().toUpperCase();
-        fileInfo.classList.add('show');
-        fileInfo.innerHTML = `<i class="fa-solid fa-file-circle-check" style="color:var(--primary);"></i> <strong>${file.name}</strong> <span style="color:#94a3b8;">(${ext}, ${sizeMB} MB)</span> <button onclick="event.stopPropagation(); clearFileInput()" style="background:none; border:none; color:#ef4444; cursor:pointer; padding:2px 6px; margin-left:auto;"><i class="fa-solid fa-xmark"></i></button>`;
-    } else {
-        fileInfo.classList.remove('show');
-        fileInfo.innerHTML = '';
-    }
-}
-
-function clearFileInput() {
-    const fileInput = document.getElementById('arch-file');
-    if (fileInput) fileInput.value = '';
-    const fileInfo = document.getElementById('arch-file-info');
-    fileInfo.classList.remove('show');
-    fileInfo.innerHTML = '';
-}
-
-function hideArchiveForm() {
-    document.getElementById('archive-form').style.display = 'none';
-}
-
-async function saveArchiveItem() {
-    const editId = document.getElementById('archive-edit-id').value;
-    const title = document.getElementById('arch-title').value.trim();
-    const topic = document.getElementById('arch-topic').value.trim();
-
-    if (!title || !topic) return alert('Title and Topic are required.');
-
-    const formData = new FormData();
-    formData.append('title', title);
-    formData.append('topic', topic);
-    formData.append('doc_type', document.getElementById('arch-doctype').value);
-    formData.append('author', document.getElementById('arch-author').value.trim());
-    formData.append('source_url', document.getElementById('arch-source').value.trim());
-    formData.append('summary', document.getElementById('arch-summary').value.trim());
-    formData.append('content', document.getElementById('arch-content').value);
-
-    const fileInput = document.getElementById('arch-file');
-    if (fileInput && fileInput.files.length > 0) {
-        formData.append('file', fileInput.files[0]);
-    }
-
-    try {
-        const url = editId ? `/archive/${editId}` : '/archive';
-        const method = editId ? 'PUT' : 'POST';
-        const res = await fetch(url, {
-            method,
-            credentials: 'include',
-            headers: { 'Accept': 'application/json' },
-            body: formData
-        });
-        if (!res.ok) {
-            const text = await res.text();
-            try { const err = JSON.parse(text); throw new Error(err.error || 'Save failed'); }
-            catch (e) { if (e.message) throw e; throw new Error('Server error'); }
+    for (const msg of _chatMessages) {
+        const msgDate = new Date(msg.created_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
+        if (msgDate !== lastDate) {
+            html += `<div class="chat-date-separator"><span>${msgDate}</span></div>`;
+            lastDate = msgDate;
         }
-        hideArchiveForm();
-        loadArchive();
-    } catch (err) {
-        alert('Save failed: ' + err.message);
+
+        const isMe = msg.sender_id === currentUser?.id;
+        const time = new Date(msg.created_at).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
+
+        html += `<div class="chat-msg ${isMe ? 'chat-msg-me' : 'chat-msg-other'}">
+            <div class="chat-msg-bubble">
+                <div class="chat-msg-text">${escapeHtml(msg.message).replace(/\n/g, '<br>')}</div>
+                <div class="chat-msg-time">${time}${isMe ? (msg.is_read ? ' <i class="fa-solid fa-check-double" style="color:#60a5fa;margin-left:3px;font-size:0.6rem;"></i>' : ' <i class="fa-solid fa-check" style="margin-left:3px;font-size:0.6rem;"></i>') : ''}</div>
+            </div>
+        </div>`;
+    }
+
+    container.innerHTML = html;
+}
+
+async function sendChatMessage() {
+    const input = document.getElementById('chat-input');
+    const message = input.value.trim();
+    if (!message || !_chatCurrentUserId) return;
+
+    input.value = '';
+    autoResizeChatInput(input);
+
+    try {
+        const res = await fetch('/chat/messages', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            credentials: 'include',
+            body: JSON.stringify({ receiver_id: _chatCurrentUserId, message })
+        });
+        if (!res.ok) throw new Error('Failed to send');
+        const newMsg = await res.json();
+        _chatMessages.push(newMsg);
+        _chatLastMessageId = newMsg.id;
+        renderChatMessages();
+        scrollChatToBottom();
+    } catch {
+        alert('Failed to send message');
     }
 }
 
-async function editArchiveItem(id) {
-    try {
-        const res = await fetch(`/archive/${id}`);
-        const item = await res.json();
-        showArchiveForm(item);
-    } catch (err) {
-        alert('Could not load item for editing.');
+function handleChatKeydown(event) {
+    if (event.key === 'Enter' && !event.shiftKey) {
+        event.preventDefault();
+        sendChatMessage();
     }
 }
 
-async function deleteArchiveItem(id) {
-    if (!confirm('Delete this research item?')) return;
-    try {
-        const res = await fetch(`/archive/${id}`, { method: 'DELETE', credentials: 'include' });
-        if (!res.ok) throw new Error();
-        loadArchive();
-    } catch (err) {
-        alert('Delete failed.');
+function autoResizeChatInput(el) {
+    el.style.height = 'auto';
+    el.style.height = Math.min(el.scrollHeight, 120) + 'px';
+}
+
+function startChatPolling() {
+    stopChatPolling();
+    _chatPollInterval = setInterval(pollNewChatMessages, 5000);
+}
+
+function stopChatPolling() {
+    if (_chatPollInterval) {
+        clearInterval(_chatPollInterval);
+        _chatPollInterval = null;
     }
 }
+
+async function pollNewChatMessages() {
+    if (!_chatCurrentUserId || !_chatPanelOpen) return;
+    try {
+        const res = await fetch(`/chat/new-messages/${encodeURIComponent(_chatCurrentUserId)}?after=${_chatLastMessageId}`, { credentials: 'include' });
+        if (!res.ok) return;
+        const newMessages = await res.json();
+        if (newMessages.length > 0) {
+            _chatMessages.push(...newMessages);
+            _chatLastMessageId = newMessages[newMessages.length - 1].id;
+            const container = document.getElementById('chat-messages');
+            const isNearBottom = container.scrollHeight - container.scrollTop - container.clientHeight < 100;
+            renderChatMessages();
+            if (isNearBottom) scrollChatToBottom();
+        }
+    } catch {}
+}
+
+function scrollChatToBottom() {
+    const container = document.getElementById('chat-messages');
+    if (container) setTimeout(() => { container.scrollTop = container.scrollHeight; }, 50);
+}
+
+function chatTruncate(str, maxLen) {
+    if (!str) return '';
+    return str.length > maxLen ? str.substring(0, maxLen) + '...' : str;
+}
+
+function formatChatTime(dateStr) {
+    if (!dateStr) return '';
+    const d = new Date(dateStr);
+    const now = new Date();
+    const diffMs = now - d;
+    const diffMins = Math.floor(diffMs / 60000);
+    if (diffMins < 1) return 'now';
+    if (diffMins < 60) return diffMins + 'm';
+    const diffHours = Math.floor(diffMins / 60);
+    if (diffHours < 24) return diffHours + 'h';
+    return d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' });
+}
+
+async function loadChatUnreadCount() {
+    if (!currentUser) return;
+    try {
+        const res = await fetch('/chat/unread-count', { credentials: 'include' });
+        if (!res.ok) return;
+        const { count } = await res.json();
+        const badge = document.getElementById('chat-badge');
+        if (!badge) return;
+        if (count > 0) {
+            badge.style.display = '';
+            badge.textContent = count > 99 ? '99+' : count;
+        } else {
+            badge.style.display = 'none';
+        }
+    } catch {}
+}
+

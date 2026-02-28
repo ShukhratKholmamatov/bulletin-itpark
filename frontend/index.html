@@ -92,8 +92,9 @@
                             <option value="Public Relations">Public Relations</option>
                             <option value="Marketing">Marketing</option>
                             <option value="Event Management">Event Management</option>
+                            <option value="HR">Human Resources</option>
                         </select>
-                    </div>x
+                    </div>
                     <div class="input-group">
                         <input type="password" id="reg-password" placeholder="Create Password">
                     </div>
@@ -109,6 +110,9 @@
         
         <header>
             <div class="header-container">
+                <button class="hamburger-btn" onclick="toggleMobileSidebar()">
+                    <i class="fa-solid fa-bars"></i>
+                </button>
                 <div class="logo-area">
                     <i class="fa-solid fa-newspaper logo-icon"></i>
                     <h1>IT Park Bulletin</h1>
@@ -120,6 +124,24 @@
                         <span id="user-dept" class="dept">General Dept</span>
                     </div>
                     <img id="user-avatar" src="" alt="Profile" class="avatar-img">
+                    <div class="notification-wrapper" id="notification-wrapper">
+                        <button onclick="toggleNotificationPanel()" class="notification-bell-btn" title="Notifications" id="notification-bell">
+                            <i class="fa-solid fa-bell"></i>
+                            <span class="notification-badge" id="notification-badge" style="display:none;">0</span>
+                        </button>
+                        <div class="notification-panel" id="notification-panel" style="display:none;">
+                            <div class="notification-panel-header">
+                                <strong>Announcements</strong>
+                            </div>
+                            <div class="notification-panel-list" id="notification-panel-list">
+                                <div style="text-align:center; padding:20px; color:var(--text-muted);">Loading...</div>
+                            </div>
+                        </div>
+                    </div>
+                    <button onclick="toggleChatPanel()" class="chat-btn" title="Department Chat" id="chat-btn">
+                        <i class="fa-solid fa-comments"></i>
+                        <span class="chat-badge" id="chat-badge" style="display:none;"></span>
+                    </button>
                     <button onclick="openSettings()" class="settings-gear-btn" title="Settings">
                         <i class="fa-solid fa-gear"></i>
                     </button>
@@ -152,9 +174,6 @@
                     <button onclick="showTab('stats')" id="tab-stats">
                         <i class="fa-solid fa-building"></i> Statistics & Hubs
                     </button>
-                    <button onclick="showTab('archive')" id="tab-archive">
-                        <i class="fa-solid fa-folder-open"></i> Research Archive
-                    </button>
                     <button onclick="showTab('admin')" id="tab-admin" style="display:none;">
                         <i class="fa-solid fa-shield-halved"></i> Admin Panel
                     </button>
@@ -168,6 +187,7 @@
                     <button id="generate-report-btn">Generate PDF</button>
                 </div>
             </aside>
+            <div class="mobile-overlay" id="mobile-overlay" onclick="toggleMobileSidebar()"></div>
 
             <section class="content-area">
                 
@@ -226,7 +246,7 @@
                         <div class="select-wrapper">
                             <select id="country-filter" onchange="if(currentTab === 'all') { resetNews(); loadNews(); }">
                                 <option value="">Global (All Countries)</option>
-                                <option value="us">🇺🇸 USA (Silicon Valley)</option>
+                                <option value="us">🇺🇸 USA (Silicon Valley)</option> 
                                 <option value="gb">🇬🇧 United Kingdom</option>
                                 <option value="in">🇮🇳 India</option>
                                 <option value="de">🇩🇪 Germany</option>
@@ -291,77 +311,6 @@
                     <div class="stats-grid" id="stats-grid"></div>
                 </div>
 
-                <div id="archive-container" class="tab-content" style="display: none;">
-                    <div id="archive-stats-bar" class="archive-stats-bar"></div>
-
-                    <div id="archive-topics" class="archive-topics-bar"></div>
-
-                    <div class="archive-toolbar">
-                        <div class="archive-search-box">
-                            <i class="fa-solid fa-magnifying-glass"></i>
-                            <input type="text" id="archive-search" placeholder="Search by title, topic, author..." oninput="filterArchive()">
-                        </div>
-                        <div class="archive-toolbar-actions">
-                            <select id="archive-sort" class="archive-sort-select" onchange="sortArchive()">
-                                <option value="newest">Newest first</option>
-                                <option value="oldest">Oldest first</option>
-                                <option value="title">A — Z</option>
-                                <option value="type">By type</option>
-                            </select>
-                            <div class="archive-view-toggle">
-                                <button id="archive-view-list" class="archive-view-btn active" onclick="setArchiveView('list')" title="List view">
-                                    <i class="fa-solid fa-list"></i>
-                                </button>
-                                <button id="archive-view-grid" class="archive-view-btn" onclick="setArchiveView('grid')" title="Grid view">
-                                    <i class="fa-solid fa-table-cells"></i>
-                                </button>
-                            </div>
-                            <button id="archive-add-btn" class="archive-add-btn" onclick="showArchiveForm()">
-                                <i class="fa-solid fa-plus"></i> New Research
-                            </button>
-                        </div>
-                    </div>
-
-                    <div id="archive-list"></div>
-
-                    <div id="archive-form" class="archive-form">
-                        <div class="archive-form-header">
-                            <h3 id="archive-form-title">New Research</h3>
-                            <button onclick="hideArchiveForm()" class="archive-form-close">&times;</button>
-                        </div>
-                        <input type="hidden" id="archive-edit-id">
-                        <div class="archive-form-grid">
-                            <input type="text" id="arch-title" placeholder="Title *">
-                            <div class="archive-form-row">
-                                <input type="text" id="arch-topic" placeholder="Topic * (e.g. AI, Crypto)">
-                                <select id="arch-doctype">
-                                    <option value="article">Article</option>
-                                    <option value="report">Report</option>
-                                    <option value="brief">Brief / Memo</option>
-                                    <option value="presentation">Presentation</option>
-                                    <option value="analysis">Analysis</option>
-                                </select>
-                                <input type="text" id="arch-author" placeholder="Author">
-                            </div>
-                            <input type="text" id="arch-source" placeholder="Source URL (optional)">
-                            <textarea id="arch-summary" placeholder="Summary (short description)" rows="2"></textarea>
-                            <textarea id="arch-content" placeholder="Full content / notes..." rows="8"></textarea>
-                            <div class="archive-upload-zone" onclick="document.getElementById('arch-file').click()">
-                                <label class="archive-upload-label">
-                                    <i class="fa-solid fa-cloud-arrow-up"></i>
-                                    <span>Click to attach a file (PDF, DOC, DOCX, PPT, XLS — max 20MB)</span>
-                                    <input type="file" id="arch-file" accept=".pdf,.doc,.docx,.ppt,.pptx,.xls,.xlsx" style="display:none;" onchange="updateFileLabel(this)">
-                                </label>
-                                <div id="arch-file-info" class="archive-file-preview"></div>
-                            </div>
-                            <button onclick="saveArchiveItem()" class="archive-save-btn">
-                                <i class="fa-solid fa-floppy-disk"></i> Save Research
-                            </button>
-                        </div>
-                    </div>
-
-                    <div id="archive-reader" class="archive-reader"></div>
-                </div>
 
                 <div id="admin-container" class="tab-content" style="display:none;">
                     <div class="admin-subnav">
@@ -423,10 +372,12 @@
                                     <option value="Public Relations">Public Relations</option>
                                     <option value="Marketing">Marketing</option>
                                     <option value="Event Management">Event Management</option>
+                                    <option value="HR">HR</option>
                                 </select>
                                 <select id="admin-role-filter" onchange="loadAdminUsers()">
                                     <option value="">All Roles</option>
                                     <option value="admin">Admin</option>
+                                    <option value="head">Head</option>
                                     <option value="viewer">Viewer</option>
                                 </select>
                             </div>
@@ -453,23 +404,9 @@
                         <div id="admin-content-stats" class="admin-stats-bar"></div>
                         <div class="admin-content-grid">
                             <div class="admin-chart-card">
-                                <h3><i class="fa-solid fa-file-lines"></i> Research by Type</h3>
-                                <div id="admin-research-types"></div>
-                            </div>
-                            <div class="admin-chart-card">
                                 <h3><i class="fa-solid fa-fire"></i> Most Saved Articles</h3>
                                 <div id="admin-popular-articles"></div>
                             </div>
-                        </div>
-                        <div class="admin-table-wrap" style="margin-top:20px;">
-                            <h3 style="padding:16px 20px 0; margin:0;"><i class="fa-solid fa-box-archive"></i> Archive Documents</h3>
-                            <div style="padding:8px 20px;">
-                                <input type="text" id="admin-archive-search" placeholder="Search archive..." oninput="debounceAdminArchiveSearch()" style="width:100%; padding:8px 12px; border-radius:8px; border:1.5px solid #e2e8f0; font-size:0.88rem; background:var(--bg-card); color:var(--text-main);">
-                            </div>
-                            <table class="admin-table">
-                                <thead><tr><th>Title</th><th>Type</th><th>Topic</th><th>Author</th><th>Date</th><th>Actions</th></tr></thead>
-                                <tbody id="admin-archive-tbody"></tbody>
-                            </table>
                         </div>
                     </div>
 
@@ -516,6 +453,7 @@
                                 <option value="Public Relations">Public Relations</option>
                                 <option value="Marketing">Marketing</option>
                                 <option value="Event Management">Event Management</option>
+                                <option value="HR">HR</option>
                             </select>
                             <button onclick="exportActivityCSV()" class="activity-export-btn" title="Export CSV">
                                 <i class="fa-solid fa-download"></i> Export
@@ -585,7 +523,7 @@
                 </div>
 
                 <div id="load-more-container">
-                    <button id="load-more-btn" style="display:none;">Load More News</button>
+                    <button id="load-more-btn" style="display:none;" onclick="loadNews()">Load More News</button>
                 </div>
 
             </section>
@@ -641,6 +579,7 @@
                         <option value="Public Relations">Public Relations</option>
                         <option value="Marketing">Marketing</option>
                         <option value="Event Management">Event Management</option>
+                        <option value="HR">Human Resources</option>
                     </select>
                     <button onclick="saveProfile()" class="settings-save-btn">
                         <i class="fa-solid fa-floppy-disk"></i> Save Profile
@@ -662,6 +601,39 @@
                         <button onclick="setFontSize('medium')" id="font-btn-medium" class="active">A</button>
                         <button onclick="setFontSize('large')" id="font-btn-large">A<small>+</small></button>
                     </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Announcement Popup Overlay -->
+    <div class="announcement-popup-overlay" id="announcement-popup" style="display:none;" onclick="closeAnnouncementPopup(event)">
+        <div class="announcement-popup-content" onclick="event.stopPropagation()">
+            <button class="announcement-popup-close" onclick="closeAnnouncementPopup()">&times;</button>
+            <div id="announcement-popup-body"></div>
+        </div>
+    </div>
+
+    <!-- Chat Panel Overlay -->
+    <div id="chat-overlay" class="chat-overlay" onclick="closeChatOnOverlay(event)">
+        <div class="chat-panel" onclick="event.stopPropagation()">
+            <div class="chat-panel-header">
+                <div class="chat-panel-header-left">
+                    <button class="chat-back-btn" id="chat-back-btn" style="display:none;" onclick="showChatDepartmentList()">
+                        <i class="fa-solid fa-arrow-left"></i>
+                    </button>
+                    <h3 id="chat-panel-title"><i class="fa-solid fa-comments"></i> Department Chat</h3>
+                </div>
+                <button class="chat-close-btn" onclick="closeChat()">&times;</button>
+            </div>
+            <div class="chat-department-list" id="chat-department-list"></div>
+            <div class="chat-room" id="chat-room" style="display:none;">
+                <div class="chat-messages" id="chat-messages"></div>
+                <div class="chat-input-area">
+                    <textarea id="chat-input" placeholder="Type a message..." rows="1" onkeydown="handleChatKeydown(event)" oninput="autoResizeChatInput(this)"></textarea>
+                    <button onclick="sendChatMessage()" class="chat-send-btn" id="chat-send-btn">
+                        <i class="fa-solid fa-paper-plane"></i>
+                    </button>
                 </div>
             </div>
         </div>

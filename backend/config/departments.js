@@ -43,6 +43,12 @@ const DEPARTMENT_GROUPS = {
         departments: ['Freelancers & Youth', 'Regional Development', 'Inclusive Projects'],
         color: '#14b8a6',
         icon: 'fa-solid fa-people-group'
+    },
+    hr_admin: {
+        name: 'HR & Administration',
+        departments: ['HR'],
+        color: '#e11d48',
+        icon: 'fa-solid fa-people-roof'
     }
 };
 
@@ -68,7 +74,13 @@ const WIDGET_REGISTRY = {
     spravochnik:          { title: 'Spravochnik (FAQ)',      icon: 'fa-solid fa-book',            size: 'full',  dataSource: 'spravochnik' },
     office_directory:     { title: 'Office Directory',       icon: 'fa-solid fa-location-dot',    size: 'full',  dataSource: 'offices' },
     call_log:             { title: 'Call Log',               icon: 'fa-solid fa-phone-flip',      size: 'full',  dataSource: 'calls' },
-    lead_pipeline:        { title: 'Lead Pipeline',          icon: 'fa-solid fa-user-plus',       size: 'half',  dataSource: 'items', itemType: 'lead' }
+    lead_pipeline:        { title: 'Lead Pipeline',          icon: 'fa-solid fa-user-plus',       size: 'half',  dataSource: 'items', itemType: 'lead' },
+    // HR announcements widget
+    announcements:        { title: 'Announcements',           icon: 'fa-solid fa-bullhorn',        size: 'full',  dataSource: 'announcements' },
+    // Task management widgets (auto-injected for head/viewer roles)
+    my_team:              { title: 'My Team',                icon: 'fa-solid fa-users',           size: 'full',  dataSource: 'team' },
+    assigned_tasks:       { title: 'Tasks I Assigned',       icon: 'fa-solid fa-list-check',      size: 'full',  dataSource: 'tasks' },
+    my_tasks:             { title: 'My Tasks',               icon: 'fa-solid fa-clipboard-check', size: 'full',  dataSource: 'tasks' }
 };
 
 // Per-department configuration: news presets, widgets, tracked item types, AI context
@@ -274,6 +286,14 @@ const DEPARTMENT_CONFIG = {
         widgets: ['news_feed', 'community_metrics', 'project_tracker', 'event_planner', 'ai_brief'],
         trackedItemTypes: ['project', 'event'],
         aiPromptContext: 'Inclusive technology projects, women in tech, diversity programs, accessibility in IT industry'
+    },
+    // ── HR & Administration ──
+    'HR': {
+        group: 'hr_admin',
+        newsPresets: { keywords: ['HR technology', 'talent management', 'employee engagement', 'workplace culture IT'], countries: ['uz'] },
+        widgets: ['announcements', 'news_feed', 'event_planner', 'ai_brief'],
+        trackedItemTypes: ['event'],
+        aiPromptContext: 'Human resources, talent management, employee engagement, workplace policy at IT Park Uzbekistan'
     }
 };
 

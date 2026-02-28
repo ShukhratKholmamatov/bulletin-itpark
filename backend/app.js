@@ -24,36 +24,11 @@ const swaggerDocument = YAML.load(path.join(__dirname, 'swagger.yaml'));
 const multer = require('multer'); // File uploads
 const fs = require('fs');
 
-// --- File Upload Setup ---
-const uploadsDir = path.join(__dirname, 'uploads');
-if (!fs.existsSync(uploadsDir)) {
-    fs.mkdirSync(uploadsDir, { recursive: true });
-    console.log('📁 Created uploads directory:', uploadsDir);
-}
-
-const storage = multer.diskStorage({
-    destination: (req, file, cb) => cb(null, uploadsDir),
-    filename: (req, file, cb) => {
-        const uniqueName = Date.now() + '-' + file.originalname.replace(/[^a-zA-Z0-9._-]/g, '_');
-        cb(null, uniqueName);
-    }
-});
-const upload = multer({
-    storage,
-    limits: { fileSize: 20 * 1024 * 1024 }, // 20MB max
-    fileFilter: (req, file, cb) => {
-        const allowed = ['.pdf', '.doc', '.docx', '.ppt', '.pptx', '.xls', '.xlsx'];
-        const ext = path.extname(file.originalname).toLowerCase();
-        if (allowed.includes(ext)) cb(null, true);
-        else cb(new Error('Only PDF, DOC, DOCX, PPT, PPTX, XLS, XLSX files are allowed'));
-    }
-});
-
-// --- Avatar Upload Setup ---
+// --- Upload Directories ---
 const avatarsDir = path.join(__dirname, 'uploads', 'avatars');
-if (!fs.existsSync(avatarsDir)) {
-    fs.mkdirSync(avatarsDir, { recursive: true });
-}
+const announcementsDir = path.join(__dirname, 'uploads', 'announcements');
+if (!fs.existsSync(avatarsDir)) fs.mkdirSync(avatarsDir, { recursive: true });
+if (!fs.existsSync(announcementsDir)) fs.mkdirSync(announcementsDir, { recursive: true });
 const avatarStorage = multer.diskStorage({
     destination: (req, file, cb) => cb(null, avatarsDir),
     filename: (req, file, cb) => {
@@ -69,6 +44,25 @@ const avatarUpload = multer({
         const ext = path.extname(file.originalname).toLowerCase();
         if (allowed.includes(ext)) cb(null, true);
         else cb(new Error('Only image files (JPG, PNG, GIF, WEBP) are allowed'));
+    }
+});
+
+// --- Announcement Image Upload Setup ---
+const announcementStorage = multer.diskStorage({
+    destination: (req, file, cb) => cb(null, announcementsDir),
+    filename: (req, file, cb) => {
+        const uniqueName = Date.now() + '-' + file.originalname.replace(/[^a-zA-Z0-9._-]/g, '_');
+        cb(null, uniqueName);
+    }
+});
+const announcementUpload = multer({
+    storage: announcementStorage,
+    limits: { fileSize: 5 * 1024 * 1024 },
+    fileFilter: (req, file, cb) => {
+        const allowed = ['.jpg', '.jpeg', '.png', '.gif', '.webp'];
+        const ext = path.extname(file.originalname).toLowerCase();
+        if (allowed.includes(ext)) cb(null, true);
+        else cb(new Error('Only image files are allowed'));
     }
 });
 
@@ -107,6 +101,11 @@ const PORT = process.env.PORT || 3000;
 /* =========================
    🔧 HELPERS & MIDDLEWARE
 ========================= */
+function ensureAuth(req, res, next) {
+    if (req.isAuthenticated()) return next();
+    return res.status(401).json({ error: 'Unauthorized' });
+}
+
 function ensureAdmin(req, res, next) {
     if (req.isAuthenticated() && req.user.role === 'admin') {
         return next();
@@ -115,6 +114,20 @@ function ensureAdmin(req, res, next) {
         return res.status(403).json({ error: 'Access denied' });
     }
     res.redirect('/');
+}
+
+function ensureHead(req, res, next) {
+    if (req.isAuthenticated() && (req.user.role === 'head' || req.user.role === 'admin')) {
+        return next();
+    }
+    return res.status(403).json({ error: 'Access denied. Head role required.' });
+}
+
+function ensureHR(req, res, next) {
+    if (req.isAuthenticated() && (req.user.department === 'HR' || req.user.role === 'admin')) {
+        return next();
+    }
+    return res.status(403).json({ error: 'HR access required.' });
 }
 
 app.use(express.json({ limit: '50mb' })); 
@@ -133,8 +146,8 @@ app.use(cookieSession({
     
     // Cookie Options
     maxAge: 24 * 60 * 60 * 1000, // 24 hours
-    secure: process.env.NODE_ENV === 'production', // True on Vercel, False on Localhost
-    sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax', // 'none' for Vercel
+    secure: process.env.NODE_ENV === 'production',
+    sameSite: 'lax',
     httpOnly: true
 }));
 
@@ -158,6 +171,7 @@ app.use(passport.session());
 app.use(express.static(path.join(__dirname, '../frontend')));
 app.use('/img', express.static(path.join(__dirname, '../frontend/img')));
 app.use('/uploads/avatars', express.static(path.join(__dirname, 'uploads', 'avatars')));
+app.use('/uploads/announcements', express.static(path.join(__dirname, 'uploads', 'announcements')));
 
 // Workspace routes (department-specific tools)
 app.use('/workspace', require('./routes/workspace'));
@@ -616,130 +630,187 @@ app.get('/nla/live/pl/search', async (req, res) => { res.status(501).json({ erro
 app.get('/nla/live/vn/search', async (req, res) => { res.status(501).json({ error: 'Vietnam search not yet implemented' }); });
 
 
+
 /* =========================
-   RESEARCH ARCHIVE
+   📢 ANNOUNCEMENTS
 ========================= */
 
-// List all research (with optional topic filter)
-app.get('/archive', (req, res) => {
-    const { topic } = req.query;
-    let sql = 'SELECT id, title, topic, summary, author, doc_type, source_url, file_name, created_at FROM research_archive';
-    const params = [];
-    if (topic) { sql += ' WHERE topic = ?'; params.push(topic); }
-    sql += ' ORDER BY created_at DESC';
-    db.all(sql, params, (err, rows) => {
-        if (err) return res.status(500).json({ error: err.message });
-        res.json(rows);
-    });
-});
-
-// Get single research with full content
-app.get('/archive/:id', (req, res) => {
-    db.get('SELECT * FROM research_archive WHERE id = ?', [req.params.id], (err, row) => {
-        if (err) return res.status(500).json({ error: err.message });
-        if (!row) return res.status(404).json({ error: 'Not found' });
-        res.json(row);
-    });
-});
-
-// Download attached file
-app.get('/archive/:id/download', (req, res) => {
-    db.get('SELECT file_name, file_path FROM research_archive WHERE id = ?', [req.params.id], (err, row) => {
-        if (err) return res.status(500).json({ error: err.message });
-        if (!row || !row.file_path) return res.status(404).json({ error: 'No file attached' });
-        const filePath = path.join(uploadsDir, row.file_path);
-        if (!fs.existsSync(filePath)) return res.status(404).json({ error: 'File not found on disk' });
-        res.download(filePath, row.file_name);
-    });
-});
-
-// List all unique topics
-app.get('/archive-topics', (req, res) => {
-    db.all('SELECT topic, COUNT(*) as count FROM research_archive GROUP BY topic ORDER BY count DESC', [], (err, rows) => {
-        if (err) return res.status(500).json({ error: err.message });
-        res.json(rows);
-    });
-});
-
-// Create new research with optional file (admin only)
-app.post('/archive', ensureAdmin, (req, res) => {
-    upload.single('file')(req, res, (uploadErr) => {
-        if (uploadErr) return res.status(400).json({ error: uploadErr.message });
-
-        const { title, topic, summary, content, author, doc_type, source_url } = req.body;
-        if (!title || !topic) return res.status(400).json({ error: 'Title and topic are required' });
-
-        const fileName = req.file ? req.file.originalname : null;
-        const filePath = req.file ? req.file.filename : null;
-
-        const sql = `INSERT INTO research_archive (title, topic, summary, content, author, doc_type, source_url, file_name, file_path) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`;
-        db.run(sql, [title, topic, summary || '', content || '', author || req.user.name, doc_type || 'article', source_url || '', fileName, filePath], function(err) {
+// List all announcements with read status for current user
+app.get('/announcements', ensureAuth, (req, res) => {
+    const userId = req.user.id;
+    db.all(`SELECT a.*, u.name as author_name, u.photo_url as author_photo,
+            CASE WHEN ar.id IS NOT NULL THEN 1 ELSE 0 END as is_read
+            FROM announcements a
+            LEFT JOIN users u ON a.created_by = u.id
+            LEFT JOIN announcement_reads ar ON a.id = ar.announcement_id AND ar.user_id = ?
+            ORDER BY a.created_at DESC`,
+        [userId], (err, rows) => {
             if (err) return res.status(500).json({ error: err.message });
-            res.json({ success: true, id: this.lastID });
+            res.json(rows);
         });
+});
+
+// Unread count for notification badge
+app.get('/announcements/unread-count', ensureAuth, (req, res) => {
+    db.get(`SELECT COUNT(*) as count FROM announcements a
+            WHERE a.id NOT IN (SELECT announcement_id FROM announcement_reads WHERE user_id = ?)`,
+        [req.user.id], (err, row) => {
+            if (err) return res.status(500).json({ error: err.message });
+            res.json({ count: row ? row.count : 0 });
+        });
+});
+
+// Create announcement (HR or admin only)
+app.post('/announcements', ensureAuth, ensureHR, (req, res) => {
+    announcementUpload.single('image')(req, res, (uploadErr) => {
+        if (uploadErr) return res.status(400).json({ error: uploadErr.message });
+        const { title, content } = req.body;
+        if (!title || !content) return res.status(400).json({ error: 'Title and content are required' });
+
+        const imageUrl = req.file ? `/uploads/announcements/${req.file.filename}` : null;
+        db.run(`INSERT INTO announcements (title, content, image_url, created_by, department) VALUES (?, ?, ?, ?, ?)`,
+            [title, content, imageUrl, req.user.id, 'HR'],
+            function(err) {
+                if (err) return res.status(500).json({ error: err.message });
+                res.json({ success: true, id: this.lastID });
+            });
     });
 });
 
-// Update research with optional file (admin only)
-app.put('/archive/:id', ensureAdmin, (req, res) => {
-    upload.single('file')(req, res, (uploadErr) => {
-        if (uploadErr) return res.status(400).json({ error: uploadErr.message });
+// Mark announcement as read
+app.post('/announcements/:id/read', ensureAuth, (req, res) => {
+    db.run(`INSERT OR IGNORE INTO announcement_reads (announcement_id, user_id) VALUES (?, ?)`,
+        [req.params.id, req.user.id], (err) => {
+            if (err) return res.status(500).json({ error: err.message });
+            res.json({ success: true });
+        });
+});
 
-        const { title, topic, summary, content, author, doc_type, source_url } = req.body;
-
-        // If a new file is uploaded, delete the old one
-        const handleUpdate = (oldFilePath) => {
-            const fileName = req.file ? req.file.originalname : undefined;
-            const filePath = req.file ? req.file.filename : undefined;
-
-            let sql, params;
-            if (req.file) {
-                sql = `UPDATE research_archive SET title=?, topic=?, summary=?, content=?, author=?, doc_type=?, source_url=?, file_name=?, file_path=?, updated_at=CURRENT_TIMESTAMP WHERE id=?`;
-                params = [title, topic, summary, content, author, doc_type, source_url, fileName, filePath, req.params.id];
-            } else {
-                sql = `UPDATE research_archive SET title=?, topic=?, summary=?, content=?, author=?, doc_type=?, source_url=?, updated_at=CURRENT_TIMESTAMP WHERE id=?`;
-                params = [title, topic, summary, content, author, doc_type, source_url, req.params.id];
-            }
-
-            db.run(sql, params, function(err) {
-                if (err) return res.status(500).json({ error: err.message });
+// Delete announcement (HR or admin only)
+app.delete('/announcements/:id', ensureAuth, ensureHR, (req, res) => {
+    db.get('SELECT image_url FROM announcements WHERE id = ?', [req.params.id], (err, row) => {
+        if (err) return res.status(500).json({ error: err.message });
+        db.run('DELETE FROM announcement_reads WHERE announcement_id = ?', [req.params.id], () => {
+            db.run('DELETE FROM announcements WHERE id = ?', [req.params.id], function(delErr) {
+                if (delErr) return res.status(500).json({ error: delErr.message });
                 if (this.changes === 0) return res.status(404).json({ error: 'Not found' });
-                // Clean up old file if replaced
-                if (req.file && oldFilePath) {
-                    const oldPath = path.join(uploadsDir, oldFilePath);
-                    if (fs.existsSync(oldPath)) fs.unlinkSync(oldPath);
+                // Clean up image file
+                if (row && row.image_url) {
+                    const filePath = path.join(__dirname, row.image_url.replace(/^\//, ''));
+                    if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
                 }
                 res.json({ success: true });
             });
-        };
+        });
+    });
+});
 
-        // Get old file path before updating
-        db.get('SELECT file_path FROM research_archive WHERE id = ?', [req.params.id], (err, row) => {
+/* =========================
+   💬 PERSONAL CHAT (1-on-1)
+========================= */
+
+// Get all users grouped by department (contacts list)
+app.get('/chat/contacts', ensureAuth, (req, res) => {
+    const me = req.user.id;
+    // Get all users except current, plus last message info per conversation
+    db.all(`SELECT u.id, u.name, u.photo_url, u.department, u.role,
+            lm.message as last_message, lm.created_at as last_message_at, lm.sender_id as last_sender_id,
+            COALESCE(unread.count, 0) as unread_count
+            FROM users u
+            LEFT JOIN (
+                SELECT * FROM chat_messages WHERE id IN (
+                    SELECT MAX(id) FROM chat_messages
+                    WHERE sender_id = ? OR receiver_id = ?
+                    GROUP BY CASE WHEN sender_id = ? THEN receiver_id ELSE sender_id END
+                )
+            ) lm ON (lm.sender_id = u.id OR lm.receiver_id = u.id) AND (lm.sender_id = ? OR lm.receiver_id = ?)
+            LEFT JOIN (
+                SELECT sender_id, COUNT(*) as count FROM chat_messages
+                WHERE receiver_id = ? AND is_read = 0
+                GROUP BY sender_id
+            ) unread ON unread.sender_id = u.id
+            WHERE u.id != ?
+            ORDER BY lm.created_at DESC, u.name ASC`,
+        [me, me, me, me, me, me, me], (err, rows) => {
             if (err) return res.status(500).json({ error: err.message });
-            handleUpdate(row ? row.file_path : null);
+            res.json(rows || []);
         });
-    });
 });
 
-// Delete research and its file (admin only)
-app.delete('/archive/:id', ensureAdmin, (req, res) => {
-    // Get file path before deleting
-    db.get('SELECT file_path FROM research_archive WHERE id = ?', [req.params.id], (err, row) => {
+// Get messages between current user and another user
+app.get('/chat/messages/:userId', ensureAuth, (req, res) => {
+    const me = req.user.id;
+    const other = req.params.userId;
+    const limit = parseInt(req.query.limit) || 50;
+    const before = req.query.before;
+
+    let sql = `SELECT id, sender_id, receiver_id, message, is_read, created_at
+               FROM chat_messages
+               WHERE (sender_id = ? AND receiver_id = ?) OR (sender_id = ? AND receiver_id = ?)`;
+    const params = [me, other, other, me];
+
+    if (before) {
+        sql += ` AND id < ?`;
+        params.push(parseInt(before));
+    }
+
+    sql += ` ORDER BY id DESC LIMIT ?`;
+    params.push(limit);
+
+    db.all(sql, params, (err, rows) => {
         if (err) return res.status(500).json({ error: err.message });
-
-        db.run('DELETE FROM research_archive WHERE id = ?', [req.params.id], function(delErr) {
-            if (delErr) return res.status(500).json({ error: delErr.message });
-            if (this.changes === 0) return res.status(404).json({ error: 'Not found' });
-            // Clean up file from disk
-            if (row && row.file_path) {
-                const filePath = path.join(uploadsDir, row.file_path);
-                if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
-            }
-            res.json({ success: true });
-        });
+        // Mark received messages as read
+        db.run(`UPDATE chat_messages SET is_read = 1 WHERE sender_id = ? AND receiver_id = ? AND is_read = 0`,
+            [other, me]);
+        res.json((rows || []).reverse());
     });
 });
 
+// Send a personal message
+app.post('/chat/messages', ensureAuth, (req, res) => {
+    const { receiver_id, message } = req.body;
+    if (!receiver_id || !message || !message.trim()) {
+        return res.status(400).json({ error: 'Receiver and message are required' });
+    }
+    if (message.length > 2000) {
+        return res.status(400).json({ error: 'Message too long (max 2000 characters)' });
+    }
+
+    db.run(`INSERT INTO chat_messages (sender_id, receiver_id, message) VALUES (?, ?, ?)`,
+        [req.user.id, receiver_id, message.trim()],
+        function(err) {
+            if (err) return res.status(500).json({ error: err.message });
+            res.json({ id: this.lastID, sender_id: req.user.id, receiver_id, message: message.trim(), is_read: 0, created_at: new Date().toISOString() });
+        });
+});
+
+// Poll for new messages in a conversation
+app.get('/chat/new-messages/:userId', ensureAuth, (req, res) => {
+    const me = req.user.id;
+    const other = req.params.userId;
+    const after = parseInt(req.query.after) || 0;
+
+    db.all(`SELECT id, sender_id, receiver_id, message, is_read, created_at
+            FROM chat_messages
+            WHERE ((sender_id = ? AND receiver_id = ?) OR (sender_id = ? AND receiver_id = ?)) AND id > ?
+            ORDER BY id ASC`,
+        [me, other, other, me, after], (err, rows) => {
+            if (err) return res.status(500).json({ error: err.message });
+            // Mark received as read
+            db.run(`UPDATE chat_messages SET is_read = 1 WHERE sender_id = ? AND receiver_id = ? AND is_read = 0`,
+                [other, me]);
+            res.json(rows || []);
+        });
+});
+
+// Count total unread messages for badge
+app.get('/chat/unread-count', ensureAuth, (req, res) => {
+    db.get(`SELECT COUNT(*) as count FROM chat_messages WHERE receiver_id = ? AND is_read = 0`,
+        [req.user.id], (err, row) => {
+            if (err) return res.status(500).json({ error: err.message });
+            res.json({ count: row ? row.count : 0 });
+        });
+});
 
 /* =========================
    📰 NEWS FEED
@@ -1170,14 +1241,11 @@ app.get('/admin/dashboard', ensureAdmin, (req, res) => {
         result.totalUsers = row ? row.count : 0;
         db.get("SELECT COUNT(*) as count FROM saved_news", (err2, row2) => {
             result.totalSaved = row2 ? row2.count : 0;
-            db.get("SELECT COUNT(*) as count FROM research_archive", (err3, row3) => {
-                result.totalResearch = row3 ? row3.count : 0;
-                db.get("SELECT COUNT(*) as count FROM users WHERE created_at >= date('now', '-7 days')", (err4, row4) => {
-                    result.recentUsers = row4 ? row4.count : 0;
-                    db.all("SELECT department, COUNT(*) as count FROM users GROUP BY department ORDER BY count DESC", (err5, rows) => {
-                        result.usersByDept = rows || [];
-                        res.json(result);
-                    });
+            db.get("SELECT COUNT(*) as count FROM users WHERE created_at >= date('now', '-7 days')", (err4, row4) => {
+                result.recentUsers = row4 ? row4.count : 0;
+                db.all("SELECT department, COUNT(*) as count FROM users GROUP BY department ORDER BY count DESC", (err5, rows) => {
+                    result.usersByDept = rows || [];
+                    res.json(result);
                 });
             });
         });
@@ -1214,9 +1282,9 @@ app.get('/admin/users', ensureAdmin, (req, res) => {
 // Change user role
 app.put('/admin/users/:id/role', ensureAdmin, (req, res) => {
     const { role } = req.body;
-    const validRoles = ['admin', 'viewer'];
+    const validRoles = ['admin', 'head', 'viewer'];
     if (!validRoles.includes(role)) {
-        return res.status(400).json({ error: 'Invalid role. Must be "admin" or "viewer".' });
+        return res.status(400).json({ error: 'Invalid role. Must be "admin", "head", or "viewer".' });
     }
     if (req.user.id === req.params.id) {
         return res.status(400).json({ error: 'You cannot change your own role.' });
@@ -1263,34 +1331,11 @@ app.delete('/admin/users/:id', ensureAdmin, (req, res) => {
 // Content overview stats
 app.get('/admin/content', ensureAdmin, (req, res) => {
     const result = {};
-    db.all("SELECT doc_type, COUNT(*) as count FROM research_archive GROUP BY doc_type ORDER BY count DESC", (err, rows) => {
-        result.researchByType = rows || [];
-        db.all("SELECT topic, COUNT(*) as count FROM research_archive GROUP BY topic ORDER BY count DESC", (err2, rows2) => {
-            result.researchByTopic = rows2 || [];
-            db.all(`SELECT news_id, title, source, url, COUNT(*) as save_count
-                    FROM saved_news GROUP BY news_id
-                    ORDER BY save_count DESC LIMIT 10`, (err3, rows3) => {
-                result.popularArticles = rows3 || [];
-                res.json(result);
-            });
-        });
-    });
-});
-
-// List all archive documents for admin
-app.get('/admin/archive', ensureAdmin, (req, res) => {
-    const search = req.query.search || '';
-    let sql = 'SELECT id, title, topic, author, doc_type, created_at FROM research_archive';
-    const params = [];
-    if (search) {
-        sql += ' WHERE title LIKE ? OR topic LIKE ? OR author LIKE ?';
-        const s = `%${search}%`;
-        params.push(s, s, s);
-    }
-    sql += ' ORDER BY created_at DESC';
-    db.all(sql, params, (err, rows) => {
-        if (err) return res.status(500).json({ error: err.message });
-        res.json({ archives: rows || [] });
+    db.all(`SELECT news_id, title, source, url, COUNT(*) as save_count
+            FROM saved_news GROUP BY news_id
+            ORDER BY save_count DESC LIMIT 10`, (err, rows) => {
+        result.popularArticles = rows || [];
+        res.json(result);
     });
 });
 
