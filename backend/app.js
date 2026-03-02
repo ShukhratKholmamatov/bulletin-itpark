@@ -1497,7 +1497,11 @@ app.use((err, req, res, next) => {
 // Export the Express API for Vercel
 module.exports = app;
 
-// Only listen if running locally (not on Vercel)
-if (require.main === module) {
+// Phusion Passenger (cPanel hosting)
+if (typeof(PhusionPassenger) !== 'undefined') {
+    PhusionPassenger.configure({ autoInstall: false });
+    app.listen('passenger', () => console.log('🚀 App started via Passenger'));
+} else if (require.main === module) {
+    // Local development
     app.listen(PORT, () => console.log(`🚀 Server running at http://localhost:${PORT}`));
 }
