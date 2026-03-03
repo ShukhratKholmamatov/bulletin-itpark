@@ -2010,7 +2010,7 @@ function showTab(tab) {
   // --- LOGIC PER TAB ---
 
   if (tab === 'dashboard') {
-    if(tabTitle) tabTitle.innerText = 'Market Analytics';
+    if(tabTitle) tabTitle.innerText = 'Source of News';
     if(dashContainer) dashContainer.style.display = 'block';
     if(filters) filters.style.display = 'none';
     const topic = document.getElementById('topic-filter')?.value || '';
@@ -2390,16 +2390,16 @@ let nlaState = {
 const NLA_DIRECTORY = {
     uz: {
         name: 'Uzbekistan', laws: [
-            { title: 'On IT Park — Tax & customs benefits for IT companies', icon: 'fa-building', url: 'https://lex.uz/docs/4521049', source: 'Lex.uz' },
+            { title: 'On IT Park — Tax & customs benefits for IT companies', icon: 'fa-building', url: 'https://lex.uz/docs/4422256', source: 'Lex.uz' },
             { title: 'On the Digital Economy — Development framework', icon: 'fa-chart-line', url: 'https://lex.uz/docs/5031048', source: 'Lex.uz' },
-            { title: 'On E-Government — Digital public services', icon: 'fa-building-columns', url: 'https://lex.uz/docs/5765514', source: 'Lex.uz' },
-            { title: 'On Startups — Support and incentives for startups', icon: 'fa-rocket', url: 'https://lex.uz/docs/5841063', source: 'Lex.uz' },
+            { title: 'On E-Government — Digital public services', icon: 'fa-building-columns', url: 'https://lex.uz/docs/2833855', source: 'Lex.uz' },
+            { title: 'On Startups — Support and incentives for startups', icon: 'fa-rocket', url: 'https://lex.uz/docs/8046204', source: 'Lex.uz' },
             { title: 'On Personal Data — Data protection regulation', icon: 'fa-user-shield', url: 'https://lex.uz/docs/4396428', source: 'Lex.uz' },
-            { title: 'On Cybersecurity — National cybersecurity framework', icon: 'fa-shield-halved', url: 'https://lex.uz/docs/6212038', source: 'Lex.uz' },
-            { title: 'On Crypto Assets — Regulation of digital assets', icon: 'fa-bitcoin-sign', url: 'https://lex.uz/docs/5841188', source: 'Lex.uz' },
-            { title: 'On E-Commerce — Electronic commerce regulation', icon: 'fa-cart-shopping', url: 'https://lex.uz/docs/4867583', source: 'Lex.uz' },
-            { title: 'On Artificial Intelligence — AI development decree', icon: 'fa-brain', url: 'https://lex.uz/docs/6343010', source: 'Lex.uz' },
-            { title: 'On IT Education — IT training programs', icon: 'fa-graduation-cap', url: 'https://lex.uz/docs/5544384', source: 'Lex.uz' },
+            { title: 'On Cybersecurity — National cybersecurity framework', icon: 'fa-shield-halved', url: 'https://lex.uz/docs/5960609', source: 'Lex.uz' },
+            { title: 'On Crypto Assets — Regulation of digital assets', icon: 'fa-bitcoin-sign', url: 'https://lex.uz/docs/3806048', source: 'Lex.uz' },
+            { title: 'On E-Commerce — Electronic commerce regulation', icon: 'fa-cart-shopping', url: 'https://lex.uz/docs/6213428', source: 'Lex.uz' },
+            { title: 'On Artificial Intelligence — AI development strategy', icon: 'fa-brain', url: 'https://lex.uz/docs/7159258', source: 'Lex.uz' },
+            { title: 'On IT Education — IT training programs', icon: 'fa-graduation-cap', url: 'https://lex.uz/docs/5032131', source: 'Lex.uz' },
         ]
     },
     kz: {
@@ -2407,7 +2407,7 @@ const NLA_DIRECTORY = {
             { title: 'Astana Hub — International tech park of IT startups', icon: 'fa-hubspot', url: 'https://adilet.zan.kz/rus/docs/P1800000949', source: 'Adilet' },
             { title: 'On Informatization — Digital infrastructure law', icon: 'fa-network-wired', url: 'https://adilet.zan.kz/rus/docs/Z1500000418', source: 'Adilet' },
             { title: 'On Personal Data — Data protection', icon: 'fa-user-shield', url: 'https://adilet.zan.kz/rus/docs/Z1300000094', source: 'Adilet' },
-            { title: 'On Digital Assets — Cryptocurrency regulation', icon: 'fa-coins', url: 'https://adilet.zan.kz/rus/docs/Z2300000047', source: 'Adilet' },
+            { title: 'On Digital Assets — Cryptocurrency regulation', icon: 'fa-coins', url: 'https://adilet.zan.kz/rus/docs/Z2300000193', source: 'Adilet' },
             { title: 'On Venture Financing — VC and startup investment', icon: 'fa-hand-holding-dollar', url: 'https://adilet.zan.kz/rus/docs/Z1800000169', source: 'Adilet' },
             { title: 'Digital Kazakhstan Program — National digitalization', icon: 'fa-laptop-code', url: 'https://adilet.zan.kz/rus/docs/P1700000827', source: 'Adilet' },
         ]
@@ -2433,7 +2433,7 @@ const NLA_DIRECTORY = {
     us: {
         name: 'United States', laws: [
             { title: 'CHIPS and Science Act 2022 — Semiconductor investment', icon: 'fa-microchip', url: 'https://www.congress.gov/bill/117th-congress/house-bill/4346', source: 'Congress.gov' },
-            { title: 'AI Executive Order 14110 — Safe AI development', icon: 'fa-brain', url: 'https://www.whitehouse.gov/briefing-room/presidential-actions/2023/10/30/executive-order-on-the-safe-secure-and-trustworthy-development-and-use-of-artificial-intelligence/', source: 'White House' },
+            { title: 'AI Executive Order 14110 — Safe AI development', icon: 'fa-brain', url: 'https://www.federalregister.gov/documents/2023/11/01/2023-24283/safe-secure-and-trustworthy-development-and-use-of-artificial-intelligence', source: 'Federal Register' },
             { title: 'Cybersecurity Information Sharing Act (CISA)', icon: 'fa-shield-halved', url: 'https://www.congress.gov/bill/114th-congress/senate-bill/754', source: 'Congress.gov' },
             { title: 'Computer Fraud and Abuse Act (CFAA)', icon: 'fa-bug', url: 'https://www.law.cornell.edu/uscode/text/18/1030', source: 'Cornell Law' },
             { title: 'Digital Millennium Copyright Act (DMCA)', icon: 'fa-copyright', url: 'https://www.congress.gov/bill/105th-congress/house-bill/2281', source: 'Congress.gov' },
@@ -2441,7 +2441,7 @@ const NLA_DIRECTORY = {
     },
     ee: {
         name: 'Estonia', laws: [
-            { title: 'E-Residency Program — Digital identity for non-residents', icon: 'fa-id-card-clip', url: 'https://www.riigiteataja.ee/en/eli/530102013080/consolide', source: 'Riigi Teataja' },
+            { title: 'E-Residency Program — Digital identity for non-residents', icon: 'fa-id-card-clip', url: 'https://www.riigiteataja.ee/en/eli/ee/504072022003/consolide/current', source: 'Riigi Teataja' },
             { title: 'Cybersecurity Act', icon: 'fa-shield-virus', url: 'https://www.riigiteataja.ee/en/eli/523052023006/consolide', source: 'Riigi Teataja' },
             { title: 'Digital Signatures Act', icon: 'fa-file-signature', url: 'https://www.riigiteataja.ee/en/eli/530102013073/consolide', source: 'Riigi Teataja' },
             { title: 'Public Information Act — Open data regulation', icon: 'fa-users-viewfinder', url: 'https://www.riigiteataja.ee/en/eli/514112013001/consolide', source: 'Riigi Teataja' },

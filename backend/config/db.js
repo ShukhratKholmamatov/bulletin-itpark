@@ -255,16 +255,16 @@ function seedNLA() {
 
         const data = [
             // 🇺🇿 UZBEKISTAN
-            { c: 'uz', cn: 'Uzbekistan', t: 'Decree UP-6079 "Digital Uzbekistan 2030"', i: 'President', top: 'Strategy', date: '2020-10-05', txt: 'The national strategy approved by the President. Key Goals:\n- 100% digitalization of public services.\n- Introduction of Digital ID.\n- 2% of local budgets allocated to digital development.', u: 'https://lex.uz/docs/5030957' },
-            { c: 'uz', cn: 'Uzbekistan', t: 'Decree PF-5099 "On Measures to Improve IT Industry"', i: 'President', top: 'Tax', date: '2017-06-30', txt: 'Established the 0% tax regime for residents until 2028 and defined the list of permitted activities.', u: 'https://lex.uz/docs/3252608' },
-            { c: 'uz', cn: 'Uzbekistan', t: 'Resolution PP-4699 "Digital Economy and E-Government"', i: 'President', top: 'E-Gov', date: '2020-04-28', txt: 'Mandates the integration of AI into public administration.', u: 'https://lex.uz/docs/4800657' },
-            
+            { c: 'uz', cn: 'Uzbekistan', t: 'Decree UP-6079 "Digital Uzbekistan 2030"', i: 'President', top: 'Strategy', date: '2020-10-05', txt: 'The national strategy approved by the President. Key Goals:\n- 100% digitalization of public services.\n- Introduction of Digital ID.\n- 2% of local budgets allocated to digital development.', u: 'https://lex.uz/docs/7008256' },
+            { c: 'uz', cn: 'Uzbekistan', t: 'Decree PF-5099 "On Measures to Improve IT Industry"', i: 'President', top: 'Tax', date: '2017-06-30', txt: 'Established the 0% tax regime for residents until 2028 and defined the list of permitted activities.', u: 'https://lex.uz/docs/3249654' },
+            { c: 'uz', cn: 'Uzbekistan', t: 'Resolution PP-4699 "Digital Economy and E-Government"', i: 'President', top: 'E-Gov', date: '2020-04-28', txt: 'Mandates the integration of AI into public administration.', u: 'https://lex.uz/docs/4800661' },
+
             // 🇰🇿 KAZAKHSTAN
-            { c: 'kz', cn: 'Kazakhstan', t: 'Entrepreneurial Code (Article 294)', i: 'Parliament', top: 'Tax', date: '2015-10-29', txt: 'Legal basis for the "Special Economic Zone" status of Astana Hub.', u: 'https://adilet.zan.kz' },
-            { c: 'kz', cn: 'Kazakhstan', t: 'Law "On Digital Assets"', i: 'Parliament', top: 'Crypto', date: '2023-02-06', txt: 'Regulates mining and the circulation of secured and unsecured digital assets.', u: 'https://adilet.zan.kz' },
+            { c: 'kz', cn: 'Kazakhstan', t: 'Entrepreneurial Code (Article 294)', i: 'Parliament', top: 'Tax', date: '2015-10-29', txt: 'Legal basis for the "Special Economic Zone" status of Astana Hub.', u: 'https://adilet.zan.kz/eng/docs/K1500000375' },
+            { c: 'kz', cn: 'Kazakhstan', t: 'Law "On Digital Assets"', i: 'Parliament', top: 'Crypto', date: '2023-02-06', txt: 'Regulates mining and the circulation of secured and unsecured digital assets.', u: 'https://adilet.zan.kz/eng/docs/Z2300000193' },
 
             // 🇬🇧 UK
-            { c: 'gb', cn: 'UK', t: 'Online Safety Act 2023', i: 'Parliament', top: 'AI', date: '2023-10-26', txt: 'Imposes duties on providers of user-to-user services to prevent illegal content.', u: 'https://legislation.gov.uk' }
+            { c: 'gb', cn: 'UK', t: 'Online Safety Act 2023', i: 'Parliament', top: 'AI', date: '2023-10-26', txt: 'Imposes duties on providers of user-to-user services to prevent illegal content.', u: 'https://www.legislation.gov.uk/ukpga/2023/50' }
         ];
 
         const stmt = db.prepare("INSERT INTO nla (country_code, country_name, title, legal_issuer, legal_topic, enactment_date, full_text, source_url) VALUES (?, ?, ?, ?, ?, ?, ?, ?)");
@@ -298,20 +298,14 @@ function seedOffices() {
     db.get("SELECT count(*) as count FROM office_directory", (err, row) => {
         if (err || row.count > 0) return;
         const offices = [
-            // IT Park
-            { provider: 'IT Park', name: 'IT Park HQ — Tashkent', city: 'Tashkent', address: 'Shahrisabz str. 6, Tashkent', capacity: '50+ offices, coworking, conference halls', price_range: 'Subsidized for residents', amenities: 'High-speed internet, meeting rooms, event space, cafeteria, 24/7 access', contact_phone: '+998 71 200 0300', contact_email: 'info@it-park.uz', website: 'https://it-park.uz', status: 'available', notes: 'Main headquarters. Priority allocation for new residents.' },
-            { provider: 'IT Park', name: 'IT Park — Samarkand', city: 'Samarkand', address: 'Samarkand city', capacity: '20+ offices', price_range: 'Subsidized for residents', amenities: 'Coworking, meeting rooms, internet', contact_phone: '+998 71 200 0300', contact_email: 'info@it-park.uz', website: 'https://it-park.uz', status: 'available', notes: 'Regional branch.' },
-            { provider: 'IT Park', name: 'IT Park — Nukus', city: 'Nukus', address: 'Nukus city', capacity: '15+ offices', price_range: 'Subsidized for residents', amenities: 'Coworking, meeting rooms, internet', contact_phone: '+998 71 200 0300', contact_email: 'info@it-park.uz', website: 'https://it-park.uz', status: 'available', notes: 'Regional branch.' },
-            { provider: 'IT Park', name: 'IT Park — Bukhara', city: 'Bukhara', address: 'Bukhara city', capacity: '15+ offices', price_range: 'Subsidized for residents', amenities: 'Coworking, meeting rooms, internet', contact_phone: '+998 71 200 0300', contact_email: 'info@it-park.uz', website: 'https://it-park.uz', status: 'available', notes: 'Regional branch.' },
+            // Shake&Pear
+            { provider: 'Shake&Pear', name: 'Shake&Pear Coworking', city: 'Tashkent', address: 'A. Navoiy str. 11A, Tashkent, Uzbekistan 100000', capacity: 'Coworking desks, private offices, meeting rooms', price_range: '', amenities: 'High-speed WiFi, meeting rooms, lounge area', contact_phone: '+998 99 140 55 99', contact_email: '', website: '', status: 'available', notes: '' },
 
             // CSpace
-            { provider: 'CSpace', name: 'CSpace Coworking — Tashkent', city: 'Tashkent', address: 'Amir Temur str., Tashkent', capacity: '100+ desks, private offices, meeting rooms', price_range: '$150-500/month', amenities: 'High-speed WiFi, lounge, kitchen, printers, event space, community events', contact_phone: '+998 90 123 4567', contact_email: 'hello@cspace.uz', website: 'https://cspace.uz', status: 'available', notes: 'Modern coworking, popular with startups and freelancers.' },
+            { provider: 'CSpace', name: 'CSpace Coworking', city: 'Tashkent', address: 'Ahmad Donish str. 20A, Tashkent 100180', capacity: '7 branches across Tashkent', price_range: '', amenities: 'High-speed WiFi, lounge, kitchen, printers, event space, community events', contact_phone: '+998 88 484 20 22', contact_email: 'info@cspace.uz', website: '', status: 'available', notes: '7 branches across Tashkent.' },
 
-            // Shakespeare
-            { provider: 'Shakespeare', name: 'Shakespeare Coworking', city: 'Tashkent', address: 'Mirzo Ulugbek district, Tashkent', capacity: '60+ desks, private offices', price_range: '$100-400/month', amenities: 'WiFi, meeting rooms, coffee bar, lounge area, printing', contact_phone: '+998 90 765 4321', contact_email: 'info@shakespeare.uz', website: 'https://shakespeare.uz', status: 'available', notes: 'Creative atmosphere, good for small teams.' },
-
-            // Ground Zero
-            { provider: 'Ground Zero', name: 'Ground Zero — Tashkent', city: 'Tashkent', address: 'Shota Rustaveli str., Tashkent', capacity: '80+ desks, offices, event hall', price_range: '$120-450/month', amenities: 'High-speed internet, conference rooms, phone booths, kitchen, 24/7 access', contact_phone: '+998 90 987 6543', contact_email: 'info@groundzero.uz', website: 'https://groundzero.uz', status: 'available', notes: 'Tech-focused coworking, hosts hackathons and meetups.' }
+            // Groundzero
+            { provider: 'Groundzero', name: 'Groundzero Coworking', city: 'Tashkent', address: '2nd Taraqqiyot passage 33, Tashkent', capacity: '3 branches across Tashkent', price_range: '', amenities: 'High-speed internet, conference rooms, kitchen, 24/7 access', contact_phone: '+998 90 830 30 35', contact_email: '', website: '', status: 'available', notes: '3 branches across Tashkent.' }
         ];
 
         const stmt = db.prepare("INSERT INTO office_directory (provider, name, city, address, capacity, price_range, amenities, contact_phone, contact_email, website, status, notes) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
