@@ -108,6 +108,9 @@ const parser = new RSSParser({
 const app = express();
 const PORT = process.env.PORT || 3000;
 
+// Trust proxy (cPanel/Passenger runs behind a reverse proxy)
+app.set('trust proxy', 1);
+
 /* =========================
    🛡️ SECURITY MIDDLEWARE
 ========================= */
@@ -117,10 +120,10 @@ app.use(helmet({
     crossOriginEmbedderPolicy: false
 }));
 
-// General rate limiter: 100 requests per minute per IP
+// General rate limiter: 200 requests per minute per IP
 app.use(rateLimit({
     windowMs: 60 * 1000,
-    max: 100,
+    max: 200,
     standardHeaders: true,
     legacyHeaders: false,
     message: { error: 'Too many requests, please try again later' }
