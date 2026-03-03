@@ -81,7 +81,7 @@ const announcementUpload = multer({
    📱 TELEGRAM BOT SETUP
 ========================= */
 const telegramToken = process.env.TELEGRAM_BOT_TOKEN;
-const telegramChatId = process.env.TELEGRAM_CHAT_ID;
+// Telegram groups are managed via Admin Panel (telegram_groups table)
 
 // Reusable SSL agent for scrapers that need to skip cert verification (e.g. adilet.zan.kz)
 const insecureAgent = new https.Agent({ rejectUnauthorized: false });
@@ -326,7 +326,7 @@ app.post('/news/share', async (req, res) => {
     const message = `<b>📢 IT Park Executive Alert</b>\n\n<b>${title}</b>\n\nℹ️ <i>${description ? description.substring(0, 150) + '...' : ''}</i>\n\n🏷 <b>Topic:</b> #${(topic || 'General').replace(/\s/g, '')}\n📰 <b>Source:</b> ${source || 'Unknown'}\n\n🔗 <a href="${url}">Read Full Article</a>`;
 
     try {
-        // Collect all chat IDs: from DB + from .env
+        // Collect all chat IDs from DB
         const dbGroups = await new Promise((resolve, reject) => {
             db.all("SELECT chat_id, name FROM telegram_groups", (err, rows) => {
                 if (err) return reject(err);
@@ -334,9 +334,6 @@ app.post('/news/share', async (req, res) => {
             });
         });
         const chatIds = dbGroups.map(g => g.chat_id);
-        if (telegramChatId && !chatIds.includes(telegramChatId)) {
-            chatIds.push(telegramChatId);
-        }
 
         if (chatIds.length === 0) {
             return res.status(400).json({ error: 'No Telegram groups configured. Add groups in Admin Panel.' });
