@@ -46,7 +46,7 @@ const DEPARTMENT_GROUPS = {
     },
     hr_admin: {
         name: 'HR & Administration',
-        departments: ['HR'],
+        departments: ['HR', 'International Relations'],
         color: '#e11d48',
         icon: 'fa-solid fa-people-roof'
     }
@@ -294,6 +294,13 @@ const DEPARTMENT_CONFIG = {
         widgets: ['announcements', 'news_feed', 'event_planner', 'ai_brief'],
         trackedItemTypes: ['event'],
         aiPromptContext: 'Human resources, talent management, employee engagement, workplace policy at IT Park Uzbekistan'
+    },
+    'International Relations': {
+        group: 'hr_admin',
+        newsPresets: { keywords: ['international cooperation IT', 'tech diplomacy', 'bilateral IT agreements', 'cross-border tech partnerships'], countries: ['uz', 'us', 'kz', 'ae'] },
+        widgets: ['news_feed', 'event_planner', 'ai_brief'],
+        trackedItemTypes: ['event'],
+        aiPromptContext: 'International relations, diplomatic partnerships, cross-border IT cooperation, global tech alliances at IT Park Uzbekistan'
     }
 };
 

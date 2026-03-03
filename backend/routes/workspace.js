@@ -52,8 +52,8 @@ router.get('/config', (req, res) => {
 router.get('/news', async (req, res) => {
     const dept = req.user.department || 'Analytics';
     const config = getDepartmentConfig(dept);
-    const limit = parseInt(req.query.limit) || 10;
-    const offset = parseInt(req.query.offset) || 0;
+    const limit = Math.min(Math.max(1, parseInt(req.query.limit) || 10), 100);
+    const offset = Math.max(0, parseInt(req.query.offset) || 0);
 
     const presets = config.newsPresets || {};
     const searchQuery = (presets.keywords || ['Technology']).slice(0, 3).join(' OR ');
@@ -115,7 +115,7 @@ router.get('/items', (req, res) => {
     if (status) { sql += ' AND status = ?'; params.push(status); }
     sql += ' ORDER BY updated_at DESC';
     db.all(sql, params, (err, rows) => {
-        if (err) return res.status(500).json({ error: err.message });
+        if (err) { console.error('DB Error:', err); return res.status(500).json({ error: 'Internal server error' }); }
         // Parse metadata JSON
         const items = (rows || []).map(r => {
             try { r.metadata = JSON.parse(r.metadata); } catch { r.metadata = {}; }
@@ -134,7 +134,7 @@ router.post('/items', (req, res) => {
         'INSERT INTO workspace_tracked_items (user_id, department, item_type, title, description, metadata) VALUES (?, ?, ?, ?, ?, ?)',
         [req.user.id, dept, item_type, title.trim(), description || '', metaStr],
         function(err) {
-            if (err) return res.status(500).json({ error: err.message });
+            if (err) { console.error('DB Error:', err); return res.status(500).json({ error: 'Internal server error' }); }
             res.json({ success: true, id: this.lastID });
         }
     );
@@ -155,7 +155,7 @@ router.put('/items/:id', (req, res) => {
     sets.push("updated_at = datetime('now')");
     params.push(req.params.id, req.user.id);
     db.run(`UPDATE workspace_tracked_items SET ${sets.join(', ')} WHERE id = ? AND user_id = ?`, params, function(err) {
-        if (err) return res.status(500).json({ error: err.message });
+        if (err) { console.error('DB Error:', err); return res.status(500).json({ error: 'Internal server error' }); }
         if (this.changes === 0) return res.status(404).json({ error: 'Not found' });
         res.json({ success: true });
     });
@@ -165,7 +165,7 @@ router.delete('/items/:id', (req, res) => {
     // Delete notes first, then the item
     db.run('DELETE FROM workspace_notes WHERE tracked_item_id = ?', [req.params.id], () => {
         db.run('DELETE FROM workspace_tracked_items WHERE id = ? AND user_id = ?', [req.params.id, req.user.id], function(err) {
-            if (err) return res.status(500).json({ error: err.message });
+            if (err) { console.error('DB Error:', err); return res.status(500).json({ error: 'Internal server error' }); }
             if (this.changes === 0) return res.status(404).json({ error: 'Not found' });
             res.json({ success: true });
         });
@@ -179,7 +179,7 @@ router.get('/items/:id/notes', (req, res) => {
         'SELECT n.*, u.name as author_name FROM workspace_notes n LEFT JOIN users u ON n.user_id = u.id WHERE n.tracked_item_id = ? ORDER BY n.created_at DESC',
         [req.params.id],
         (err, rows) => {
-            if (err) return res.status(500).json({ error: err.message });
+            if (err) { console.error('DB Error:', err); return res.status(500).json({ error: 'Internal server error' }); }
             res.json(rows || []);
         }
     );
@@ -192,7 +192,7 @@ router.post('/items/:id/notes', (req, res) => {
         'INSERT INTO workspace_notes (tracked_item_id, user_id, content) VALUES (?, ?, ?)',
         [req.params.id, req.user.id, content.trim()],
         function(err) {
-            if (err) return res.status(500).json({ error: err.message });
+            if (err) { console.error('DB Error:', err); return res.status(500).json({ error: 'Internal server error' }); }
             res.json({ success: true, id: this.lastID });
         }
     );
@@ -378,27 +378,29 @@ Respond in valid JSON only: {"work_summary":"...","news_summary":"...","recommen
 // ── SPRAVOCHNIK (Department Knowledge Base) ──
 
 router.get('/spravochnik', (req, res) => {
-    const dept = req.query.department || req.user.department || 'Softlanding';
+    // Users can only see their own department's entries (admins can see any)
+    const dept = (req.user.role === 'admin' && req.query.department) ? req.query.department : (req.user.department || 'Softlanding');
     const category = req.query.category || '';
     let sql = 'SELECT * FROM spravochnik WHERE department = ?';
     const params = [dept];
     if (category) { sql += ' AND category = ?'; params.push(category); }
     sql += ' ORDER BY category, title';
     db.all(sql, params, (err, rows) => {
-        if (err) return res.status(500).json({ error: err.message });
+        if (err) { console.error('DB Error:', err); return res.status(500).json({ error: 'Internal server error' }); }
         res.json(rows || []);
     });
 });
 
 router.post('/spravochnik', (req, res) => {
-    const { category, title, content, department } = req.body;
+    const { category, title, content } = req.body;
     if (!category || !title || !content) return res.status(400).json({ error: 'category, title, and content required' });
-    const dept = department || req.user.department || 'Softlanding';
+    // Force user's own department — don't accept from body
+    const dept = req.user.department || 'Softlanding';
     db.run(
         'INSERT INTO spravochnik (department, category, title, content, created_by) VALUES (?, ?, ?, ?, ?)',
         [dept, category.trim(), title.trim(), content.trim(), req.user.id],
         function(err) {
-            if (err) return res.status(500).json({ error: err.message });
+            if (err) { console.error('DB Error:', err); return res.status(500).json({ error: 'Internal server error' }); }
             res.json({ success: true, id: this.lastID });
         }
     );
@@ -413,18 +415,29 @@ router.put('/spravochnik/:id', (req, res) => {
     if (content) { sets.push('content = ?'); params.push(content.trim()); }
     if (!sets.length) return res.status(400).json({ error: 'Nothing to update' });
     sets.push("updated_at = datetime('now')");
+    params.push(req.user.id);
     params.push(req.params.id);
-    db.run(`UPDATE spravochnik SET ${sets.join(', ')} WHERE id = ?`, params, function(err) {
-        if (err) return res.status(500).json({ error: err.message });
-        if (this.changes === 0) return res.status(404).json({ error: 'Not found' });
+    // Only creator or admin can update
+    const authClause = req.user.role === 'admin' ? '' : ' AND created_by = ?';
+    const finalParams = req.user.role === 'admin' ? [...params.slice(0, -2), req.params.id] : params;
+    db.run(`UPDATE spravochnik SET ${sets.join(', ')} WHERE id = ?${authClause}`, finalParams, function(err) {
+        if (err) { console.error('DB Error:', err); return res.status(500).json({ error: 'Internal server error' }); }
+        if (this.changes === 0) return res.status(404).json({ error: 'Not found or not authorized' });
         res.json({ success: true });
     });
 });
 
 router.delete('/spravochnik/:id', (req, res) => {
-    db.run('DELETE FROM spravochnik WHERE id = ?', [req.params.id], function(err) {
-        if (err) return res.status(500).json({ error: err.message });
-        if (this.changes === 0) return res.status(404).json({ error: 'Not found' });
+    // Only creator or admin can delete
+    let sql = 'DELETE FROM spravochnik WHERE id = ?';
+    const params = [req.params.id];
+    if (req.user.role !== 'admin') {
+        sql += ' AND created_by = ?';
+        params.push(req.user.id);
+    }
+    db.run(sql, params, function(err) {
+        if (err) { console.error('DB Error:', err); return res.status(500).json({ error: 'Internal server error' }); }
+        if (this.changes === 0) return res.status(404).json({ error: 'Not found or not authorized' });
         res.json({ success: true });
     });
 });
@@ -440,7 +453,7 @@ router.get('/offices', (req, res) => {
     if (status) { sql += ' AND status = ?'; params.push(status); }
     sql += ' ORDER BY provider, city, name';
     db.all(sql, params, (err, rows) => {
-        if (err) return res.status(500).json({ error: err.message });
+        if (err) { console.error('DB Error:', err); return res.status(500).json({ error: 'Internal server error' }); }
         res.json(rows || []);
     });
 });
@@ -456,7 +469,7 @@ router.get('/calls', (req, res) => {
     if (interest) { sql += ' AND interest_level = ?'; params.push(interest); }
     sql += ' ORDER BY created_at DESC';
     db.all(sql, params, (err, rows) => {
-        if (err) return res.status(500).json({ error: err.message });
+        if (err) { console.error('DB Error:', err); return res.status(500).json({ error: 'Internal server error' }); }
         res.json(rows || []);
     });
 });
@@ -468,7 +481,7 @@ router.post('/calls', (req, res) => {
         'INSERT INTO call_log (user_id, lead_name, company_name, phone, email, call_result, interest_level, preferred_office, notes, follow_up_date) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
         [req.user.id, lead_name.trim(), company_name || '', phone || '', email || '', call_result, interest_level || 'medium', preferred_office || '', notes || '', follow_up_date || ''],
         function(err) {
-            if (err) return res.status(500).json({ error: err.message });
+            if (err) { console.error('DB Error:', err); return res.status(500).json({ error: 'Internal server error' }); }
             res.json({ success: true, id: this.lastID });
         }
     );
@@ -476,7 +489,7 @@ router.post('/calls', (req, res) => {
 
 router.delete('/calls/:id', (req, res) => {
     db.run('DELETE FROM call_log WHERE id = ? AND user_id = ?', [req.params.id, req.user.id], function(err) {
-        if (err) return res.status(500).json({ error: err.message });
+        if (err) { console.error('DB Error:', err); return res.status(500).json({ error: 'Internal server error' }); }
         if (this.changes === 0) return res.status(404).json({ error: 'Not found' });
         res.json({ success: true });
     });
@@ -513,7 +526,7 @@ router.get('/team', ensureAuth, ensureHead, (req, res) => {
     const dept = req.user.department || 'General';
     db.all("SELECT id, name, email, photo_url, department, role FROM users WHERE department = ? AND id != ?",
         [dept, req.user.id], (err, rows) => {
-            if (err) return res.status(500).json({ error: err.message });
+            if (err) { console.error('DB Error:', err); return res.status(500).json({ error: 'Internal server error' }); }
             res.json(rows);
         });
 });
@@ -552,7 +565,7 @@ router.get('/tasks', ensureAuth, (req, res) => {
     sql += ` ORDER BY CASE t.priority WHEN 'urgent' THEN 0 WHEN 'high' THEN 1 WHEN 'medium' THEN 2 ELSE 3 END, t.created_at DESC`;
 
     db.all(sql, params, (err, rows) => {
-        if (err) return res.status(500).json({ error: err.message });
+        if (err) { console.error('DB Error:', err); return res.status(500).json({ error: 'Internal server error' }); }
         res.json(rows);
     });
 });
@@ -567,7 +580,7 @@ router.post('/tasks', ensureAuth, ensureHead, (req, res) => {
             VALUES (?, ?, ?, ?, ?, ?, ?)`,
         [title, description || '', assigned_to, req.user.id, dept, priority || 'medium', deadline || null],
         function(err) {
-            if (err) return res.status(500).json({ error: err.message });
+            if (err) { console.error('DB Error:', err); return res.status(500).json({ error: 'Internal server error' }); }
             res.json({ success: true, id: this.lastID });
         });
 });
@@ -579,7 +592,7 @@ router.put('/tasks/:id', ensureAuth, (req, res) => {
     const role = req.user.role;
 
     db.get("SELECT * FROM tasks WHERE id = ?", [taskId], (err, task) => {
-        if (err) return res.status(500).json({ error: err.message });
+        if (err) { console.error('DB Error:', err); return res.status(500).json({ error: 'Internal server error' }); }
         if (!task) return res.status(404).json({ error: 'Task not found' });
 
         // Head can edit any field on tasks they assigned, viewer can only update status
@@ -610,7 +623,7 @@ router.put('/tasks/:id', ensureAuth, (req, res) => {
 // Delete task (head only, tasks they assigned)
 router.delete('/tasks/:id', ensureAuth, ensureHead, (req, res) => {
     db.run("DELETE FROM tasks WHERE id = ? AND assigned_by = ?", [req.params.id, req.user.id], function(err) {
-        if (err) return res.status(500).json({ error: err.message });
+        if (err) { console.error('DB Error:', err); return res.status(500).json({ error: 'Internal server error' }); }
         if (this.changes === 0) return res.status(404).json({ error: 'Task not found or not yours' });
         res.json({ success: true });
     });

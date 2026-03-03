@@ -4,16 +4,17 @@
 require('dotenv').config();
 const express = require('express');
 const cookieSession = require('cookie-session'); // Replaced express-session
-const passport = require('passport'); 
-require('./config/passport')(passport); 
+const passport = require('passport');
+require('./config/passport')(passport);
 const path = require('path');
-const fetch = require('node-fetch'); 
+const crypto = require('crypto');
+const fetch = require('node-fetch');
 const db = require('./config/db');
 const PDFDocument = require('pdfkit');
-const RSSParser = require('rss-parser'); 
-const bcrypt = require('bcryptjs'); 
+const RSSParser = require('rss-parser');
+const bcrypt = require('bcryptjs');
 const TelegramBot = require('node-telegram-bot-api');
-const https = require('https'); 
+const https = require('https');
 const cheerio = require('cheerio'); // Scraper
 const { pipeline } = require('stream');
 const { promisify } = require('util');
@@ -23,6 +24,14 @@ const YAML = require('yamljs');
 const swaggerDocument = YAML.load(path.join(__dirname, 'swagger.yaml'));
 const multer = require('multer'); // File uploads
 const fs = require('fs');
+const helmet = require('helmet');
+const rateLimit = require('express-rate-limit');
+
+// --- Security: Validate session secret ---
+if (!process.env.SESSION_SECRET || process.env.SESSION_SECRET.length < 16) {
+    console.error('❌ FATAL: SESSION_SECRET must be set in .env and be at least 16 characters');
+    process.exit(1);
+}
 
 // --- Upload Directories ---
 const avatarsDir = path.join(__dirname, 'uploads', 'avatars');
@@ -51,8 +60,9 @@ const avatarUpload = multer({
 const announcementStorage = multer.diskStorage({
     destination: (req, file, cb) => cb(null, announcementsDir),
     filename: (req, file, cb) => {
-        const uniqueName = Date.now() + '-' + file.originalname.replace(/[^a-zA-Z0-9._-]/g, '_');
-        cb(null, uniqueName);
+        const ext = path.extname(file.originalname).toLowerCase();
+        const randomName = crypto.randomBytes(16).toString('hex') + ext;
+        cb(null, randomName);
     }
 });
 const announcementUpload = multer({
@@ -99,15 +109,47 @@ const app = express();
 const PORT = process.env.PORT || 3000;
 
 /* =========================
+   🛡️ SECURITY MIDDLEWARE
+========================= */
+// Security headers (X-Frame-Options, X-Content-Type-Options, etc.)
+app.use(helmet({
+    contentSecurityPolicy: false, // Disabled to allow inline scripts in frontend
+    crossOriginEmbedderPolicy: false
+}));
+
+// General rate limiter: 100 requests per minute per IP
+app.use(rateLimit({
+    windowMs: 60 * 1000,
+    max: 100,
+    standardHeaders: true,
+    legacyHeaders: false,
+    message: { error: 'Too many requests, please try again later' }
+}));
+
+// Stricter rate limiter for auth routes
+const authLimiter = rateLimit({
+    windowMs: 60 * 1000,
+    max: 10,
+    message: { error: 'Too many login attempts, please try again later' }
+});
+
+/* =========================
    🔧 HELPERS & MIDDLEWARE
 ========================= */
+// HTML sanitization helper to prevent XSS
+function escapeHtml(str) {
+    if (!str) return '';
+    return String(str).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#x27;');
+}
+
 function ensureAuth(req, res, next) {
-    if (req.isAuthenticated()) return next();
-    return res.status(401).json({ error: 'Unauthorized' });
+    if (!req.isAuthenticated()) return res.status(401).json({ error: 'Unauthorized' });
+    if (req.user.approval_status !== 'approved') return res.status(403).json({ error: 'Account pending approval' });
+    return next();
 }
 
 function ensureAdmin(req, res, next) {
-    if (req.isAuthenticated() && req.user.role === 'admin') {
+    if (req.isAuthenticated() && req.user.role === 'admin' && req.user.approval_status === 'approved') {
         return next();
     }
     if (req.xhr || (req.headers.accept && req.headers.accept.indexOf('json') > -1)) {
@@ -130,7 +172,7 @@ function ensureHR(req, res, next) {
     return res.status(403).json({ error: 'HR access required.' });
 }
 
-app.use(express.json({ limit: '50mb' })); 
+app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 
 /* =========================
@@ -142,11 +184,11 @@ app.set('trust proxy', 1);
 // 2. Configure Cookie Session (Client-Side Storage)
 app.use(cookieSession({
     name: 'session',
-    keys: [process.env.SESSION_SECRET || 'fallback_secret'],
+    keys: [process.env.SESSION_SECRET],
     
     // Cookie Options
     maxAge: 24 * 60 * 60 * 1000, // 24 hours
-    secure: process.env.NODE_ENV === 'production',
+    secure: false,   // Set to true once SSL/HTTPS is configured
     sameSite: 'lax',
     httpOnly: true
 }));
@@ -179,12 +221,12 @@ app.use('/workspace', require('./routes/workspace'));
 /* =========================
    🔐 AUTH ROUTES
 ========================= */
-app.post('/auth/register', async (req, res) => {
+app.post('/auth/register', authLimiter, async (req, res) => {
     const { name, email, password, department } = req.body;
     if (!name || !email || !password) return res.status(400).json({ error: 'Please fill all fields' });
 
     db.get("SELECT * FROM users WHERE email = ?", [email], async (err, user) => {
-        if (err) return res.status(500).json({ error: err.message });
+        if (err) { console.error('DB Error:', err); return res.status(500).json({ error: 'Internal server error' }); }
         if (user) return res.status(400).json({ error: 'Email already exists' });
 
         const salt = await bcrypt.genSalt(10);
@@ -192,19 +234,19 @@ app.post('/auth/register', async (req, res) => {
         const newId = 'local_' + Date.now();
         const photoUrl = `https://ui-avatars.com/api/?name=${name}&background=7dba28&color=fff`;
 
-        const sql = `INSERT INTO users (id, name, email, password, department, photo_url) VALUES (?, ?, ?, ?, ?, ?)`;
+        const sql = `INSERT INTO users (id, name, email, password, department, photo_url, approval_status) VALUES (?, ?, ?, ?, ?, ?, 'pending')`;
         db.run(sql, [newId, name, email, hash, department, photoUrl], function(err) {
-            if (err) return res.status(500).json({ error: err.message });
-            const newUser = { id: newId, name, email, department, photo_url: photoUrl };
+            if (err) { console.error('DB Error:', err); return res.status(500).json({ error: 'Internal server error' }); }
+            const newUser = { id: newId, name, email, department, photo_url: photoUrl, approval_status: 'pending' };
             req.login(newUser, (err) => {
-                if (err) return res.status(500).json({ error: err.message });
+                if (err) { console.error('DB Error:', err); return res.status(500).json({ error: 'Internal server error' }); }
                 res.json(newUser);
             });
         });
     });
 });
 
-app.post('/auth/login', (req, res, next) => {
+app.post('/auth/login', authLimiter, (req, res, next) => {
     passport.authenticate('local', (err, user, info) => {
         if (err) return next(err);
         if (!user) return res.status(400).json({ error: (info && info.message) || 'Invalid credentials' });
@@ -241,7 +283,7 @@ app.put('/auth/profile', (req, res) => {
     const dept = allowedDepts.includes(department) ? department : department || 'Analytics';
 
     db.run(`UPDATE users SET name = ?, department = ? WHERE id = ?`, [name.trim(), dept, req.user.id], function(err) {
-        if (err) return res.status(500).json({ error: err.message });
+        if (err) { console.error('DB Error:', err); return res.status(500).json({ error: 'Internal server error' }); }
         res.json({ success: true, name: name.trim(), department: dept });
     });
 });
@@ -267,7 +309,7 @@ app.post('/auth/avatar', (req, res) => {
 
         const photoUrl = `/uploads/avatars/${req.file.filename}`;
         db.run(`UPDATE users SET photo_url = ? WHERE id = ?`, [photoUrl, req.user.id], function(err) {
-            if (err) return res.status(500).json({ error: err.message });
+            if (err) { console.error('DB Error:', err); return res.status(500).json({ error: 'Internal server error' }); }
             res.json({ success: true, photo_url: photoUrl });
         });
     });
@@ -301,7 +343,7 @@ app.post('/news/save', (req, res) => {
 
     const sql = `INSERT OR REPLACE INTO saved_news (user_id, news_id, title, description, url, image, source, topic, published_at, saved_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)`;
     db.run(sql, [req.user.id, id, title, description, url, image, source, topic, published_at], (err) => {
-        if (err) return res.status(500).json({ error: err.message });
+        if (err) { console.error('DB Error:', err); return res.status(500).json({ error: 'Internal server error' }); }
         res.json({ success: true });
     });
 });
@@ -310,7 +352,7 @@ app.get('/news/saved', (req, res) => {
     if (!req.user) return res.status(401).json({ error: 'Unauthorized' });
     const sql = `SELECT * FROM saved_news WHERE user_id = ? ORDER BY saved_at DESC`;
     db.all(sql, [req.user.id], (err, rows) => {
-        if (err) return res.status(500).json({ error: err.message });
+        if (err) { console.error('DB Error:', err); return res.status(500).json({ error: 'Internal server error' }); }
         const articles = rows.map(r => ({
             id: r.news_id, title: r.title, description: r.description, url: r.url,
             image: r.image, source: r.source, topic: r.topic, published_at: r.published_at,
@@ -324,7 +366,7 @@ app.post('/news/unsave', (req, res) => {
     if (!req.user) return res.status(401).json({ error: 'Unauthorized' });
     const { newsId } = req.body;
     db.run("DELETE FROM saved_news WHERE user_id = ? AND news_id = ?", [req.user.id, newsId], (err) => {
-        if (err) return res.status(500).json({ error: err.message });
+        if (err) { console.error('DB Error:', err); return res.status(500).json({ error: 'Internal server error' }); }
         res.json({ success: true });
     });
 });
@@ -338,7 +380,7 @@ app.get('/nla', (req, res) => {
     let params = [];
     if (country) { sql += " WHERE country_code = ?"; params.push(country); }
     db.all(sql, params, (err, rows) => {
-        if (err) return res.status(500).json({ error: err.message });
+        if (err) { console.error('DB Error:', err); return res.status(500).json({ error: 'Internal server error' }); }
         res.json(rows);
     });
 });
@@ -349,7 +391,7 @@ app.get('/stats', (req, res) => {
     let params = [];
     if (country) { sql += " WHERE country_code = ?"; params.push(country); }
     db.all(sql, params, (err, rows) => {
-        if (err) return res.status(500).json({ error: err.message });
+        if (err) { console.error('DB Error:', err); return res.status(500).json({ error: 'Internal server error' }); }
         res.json(rows);
     });
 });
@@ -382,7 +424,7 @@ app.get('/analytics/data', ensureAdmin, (req, res) => {
         .then(([deptData, topicData, timelineData]) => {
             res.json({ deptData, topicData, timelineData });
         })
-        .catch(err => res.status(500).json({ error: err.message }));
+        .catch(err => { console.error('DB Error:', err); res.status(500).json({ error: 'Internal server error' }); });
 });
 
 /* =========================
@@ -645,7 +687,7 @@ app.get('/announcements', ensureAuth, (req, res) => {
             LEFT JOIN announcement_reads ar ON a.id = ar.announcement_id AND ar.user_id = ?
             ORDER BY a.created_at DESC`,
         [userId], (err, rows) => {
-            if (err) return res.status(500).json({ error: err.message });
+            if (err) { console.error('DB Error:', err); return res.status(500).json({ error: 'Internal server error' }); }
             res.json(rows);
         });
 });
@@ -655,7 +697,7 @@ app.get('/announcements/unread-count', ensureAuth, (req, res) => {
     db.get(`SELECT COUNT(*) as count FROM announcements a
             WHERE a.id NOT IN (SELECT announcement_id FROM announcement_reads WHERE user_id = ?)`,
         [req.user.id], (err, row) => {
-            if (err) return res.status(500).json({ error: err.message });
+            if (err) { console.error('DB Error:', err); return res.status(500).json({ error: 'Internal server error' }); }
             res.json({ count: row ? row.count : 0 });
         });
 });
@@ -671,7 +713,7 @@ app.post('/announcements', ensureAuth, ensureHR, (req, res) => {
         db.run(`INSERT INTO announcements (title, content, image_url, created_by, department) VALUES (?, ?, ?, ?, ?)`,
             [title, content, imageUrl, req.user.id, 'HR'],
             function(err) {
-                if (err) return res.status(500).json({ error: err.message });
+                if (err) { console.error('DB Error:', err); return res.status(500).json({ error: 'Internal server error' }); }
                 res.json({ success: true, id: this.lastID });
             });
     });
@@ -681,7 +723,7 @@ app.post('/announcements', ensureAuth, ensureHR, (req, res) => {
 app.post('/announcements/:id/read', ensureAuth, (req, res) => {
     db.run(`INSERT OR IGNORE INTO announcement_reads (announcement_id, user_id) VALUES (?, ?)`,
         [req.params.id, req.user.id], (err) => {
-            if (err) return res.status(500).json({ error: err.message });
+            if (err) { console.error('DB Error:', err); return res.status(500).json({ error: 'Internal server error' }); }
             res.json({ success: true });
         });
 });
@@ -689,7 +731,7 @@ app.post('/announcements/:id/read', ensureAuth, (req, res) => {
 // Delete announcement (HR or admin only)
 app.delete('/announcements/:id', ensureAuth, ensureHR, (req, res) => {
     db.get('SELECT image_url FROM announcements WHERE id = ?', [req.params.id], (err, row) => {
-        if (err) return res.status(500).json({ error: err.message });
+        if (err) { console.error('DB Error:', err); return res.status(500).json({ error: 'Internal server error' }); }
         db.run('DELETE FROM announcement_reads WHERE announcement_id = ?', [req.params.id], () => {
             db.run('DELETE FROM announcements WHERE id = ?', [req.params.id], function(delErr) {
                 if (delErr) return res.status(500).json({ error: delErr.message });
@@ -732,7 +774,7 @@ app.get('/chat/contacts', ensureAuth, (req, res) => {
             WHERE u.id != ?
             ORDER BY lm.created_at DESC, u.name ASC`,
         [me, me, me, me, me, me, me], (err, rows) => {
-            if (err) return res.status(500).json({ error: err.message });
+            if (err) { console.error('DB Error:', err); return res.status(500).json({ error: 'Internal server error' }); }
             res.json(rows || []);
         });
 });
@@ -741,24 +783,24 @@ app.get('/chat/contacts', ensureAuth, (req, res) => {
 app.get('/chat/messages/:userId', ensureAuth, (req, res) => {
     const me = req.user.id;
     const other = req.params.userId;
-    const limit = parseInt(req.query.limit) || 50;
-    const before = req.query.before;
+    const limit = Math.min(Math.max(1, parseInt(req.query.limit) || 50), 100);
+    const before = parseInt(req.query.before) || 0;
 
     let sql = `SELECT id, sender_id, receiver_id, message, is_read, created_at
                FROM chat_messages
                WHERE (sender_id = ? AND receiver_id = ?) OR (sender_id = ? AND receiver_id = ?)`;
     const params = [me, other, other, me];
 
-    if (before) {
+    if (before > 0) {
         sql += ` AND id < ?`;
-        params.push(parseInt(before));
+        params.push(before);
     }
 
     sql += ` ORDER BY id DESC LIMIT ?`;
     params.push(limit);
 
     db.all(sql, params, (err, rows) => {
-        if (err) return res.status(500).json({ error: err.message });
+        if (err) { console.error('DB Error:', err); return res.status(500).json({ error: 'Internal server error' }); }
         // Mark received messages as read
         db.run(`UPDATE chat_messages SET is_read = 1 WHERE sender_id = ? AND receiver_id = ? AND is_read = 0`,
             [other, me]);
@@ -775,12 +817,13 @@ app.post('/chat/messages', ensureAuth, (req, res) => {
     if (message.length > 2000) {
         return res.status(400).json({ error: 'Message too long (max 2000 characters)' });
     }
+    const sanitizedMsg = escapeHtml(message.trim());
 
     db.run(`INSERT INTO chat_messages (sender_id, receiver_id, message) VALUES (?, ?, ?)`,
-        [req.user.id, receiver_id, message.trim()],
+        [req.user.id, receiver_id, sanitizedMsg],
         function(err) {
-            if (err) return res.status(500).json({ error: err.message });
-            res.json({ id: this.lastID, sender_id: req.user.id, receiver_id, message: message.trim(), is_read: 0, created_at: new Date().toISOString() });
+            if (err) { console.error('DB Error:', err); return res.status(500).json({ error: 'Internal server error' }); }
+            res.json({ id: this.lastID, sender_id: req.user.id, receiver_id, message: sanitizedMsg, is_read: 0, created_at: new Date().toISOString() });
         });
 });
 
@@ -795,7 +838,7 @@ app.get('/chat/new-messages/:userId', ensureAuth, (req, res) => {
             WHERE ((sender_id = ? AND receiver_id = ?) OR (sender_id = ? AND receiver_id = ?)) AND id > ?
             ORDER BY id ASC`,
         [me, other, other, me, after], (err, rows) => {
-            if (err) return res.status(500).json({ error: err.message });
+            if (err) { console.error('DB Error:', err); return res.status(500).json({ error: 'Internal server error' }); }
             // Mark received as read
             db.run(`UPDATE chat_messages SET is_read = 1 WHERE sender_id = ? AND receiver_id = ? AND is_read = 0`,
                 [other, me]);
@@ -807,7 +850,7 @@ app.get('/chat/new-messages/:userId', ensureAuth, (req, res) => {
 app.get('/chat/unread-count', ensureAuth, (req, res) => {
     db.get(`SELECT COUNT(*) as count FROM chat_messages WHERE receiver_id = ? AND is_read = 0`,
         [req.user.id], (err, row) => {
-            if (err) return res.status(500).json({ error: err.message });
+            if (err) { console.error('DB Error:', err); return res.status(500).json({ error: 'Internal server error' }); }
             res.json({ count: row ? row.count : 0 });
         });
 });
@@ -1255,7 +1298,7 @@ app.get('/admin/dashboard', ensureAdmin, (req, res) => {
 // List all users with search/filter
 app.get('/admin/users', ensureAdmin, (req, res) => {
     const { search, department, role } = req.query;
-    let sql = "SELECT id, email, name, photo_url, department, role, created_at FROM users WHERE 1=1";
+    let sql = "SELECT id, email, name, photo_url, department, role, approval_status, created_at FROM users WHERE 1=1";
     const params = [];
 
     if (search) {
@@ -1274,7 +1317,7 @@ app.get('/admin/users', ensureAdmin, (req, res) => {
     sql += " ORDER BY created_at DESC";
 
     db.all(sql, params, (err, rows) => {
-        if (err) return res.status(500).json({ error: err.message });
+        if (err) { console.error('DB Error:', err); return res.status(500).json({ error: 'Internal server error' }); }
         res.json({ users: rows || [], total: (rows || []).length });
     });
 });
@@ -1290,21 +1333,39 @@ app.put('/admin/users/:id/role', ensureAdmin, (req, res) => {
         return res.status(400).json({ error: 'You cannot change your own role.' });
     }
     db.run("UPDATE users SET role = ? WHERE id = ?", [role, req.params.id], function(err) {
-        if (err) return res.status(500).json({ error: err.message });
+        if (err) { console.error('DB Error:', err); return res.status(500).json({ error: 'Internal server error' }); }
         if (this.changes === 0) return res.status(404).json({ error: 'User not found.' });
         res.json({ success: true, id: req.params.id, role });
+    });
+});
+
+// Approve user
+app.put('/admin/users/:id/approve', ensureAdmin, (req, res) => {
+    db.run("UPDATE users SET approval_status = 'approved' WHERE id = ?", [req.params.id], function(err) {
+        if (err) { console.error('DB Error:', err); return res.status(500).json({ error: 'Internal server error' }); }
+        if (this.changes === 0) return res.status(404).json({ error: 'User not found.' });
+        res.json({ success: true, id: req.params.id, approval_status: 'approved' });
+    });
+});
+
+// Reject user
+app.put('/admin/users/:id/reject', ensureAdmin, (req, res) => {
+    db.run("UPDATE users SET approval_status = 'rejected' WHERE id = ?", [req.params.id], function(err) {
+        if (err) { console.error('DB Error:', err); return res.status(500).json({ error: 'Internal server error' }); }
+        if (this.changes === 0) return res.status(404).json({ error: 'User not found.' });
+        res.json({ success: true, id: req.params.id, approval_status: 'rejected' });
     });
 });
 
 // Change user department
 app.put('/admin/users/:id/department', ensureAdmin, (req, res) => {
     const { department } = req.body;
-    const validDepts = ['Product Export','Startup Ecosystem','Western Markets','Eastern Markets','GovTech','Venture Capital','Analytics','BPO Monitoring','Residents Relations','Residents Registration','Residents Monitoring','Softlanding','Legal Ecosystem','AI Infrastructure','AI Research','Inclusive Projects','Regional Development','Freelancers & Youth','Infrastructure','Infrastructure Dev','PPP Investors','IT Outsourcing','Global Marketing','Multimedia','Public Relations','Marketing','Event Management'];
+    const validDepts = ['Product Export','Startup Ecosystem','Western Markets','Eastern Markets','GovTech','Venture Capital','Analytics','BPO Monitoring','Residents Relations','Residents Registration','Residents Monitoring','Softlanding','Legal Ecosystem','AI Infrastructure','AI Research','Inclusive Projects','Regional Development','Freelancers & Youth','Infrastructure','Infrastructure Dev','PPP Investors','IT Outsourcing','Global Marketing','Multimedia','Public Relations','Marketing','Event Management','International Relations','HR'];
     if (!validDepts.includes(department)) {
         return res.status(400).json({ error: 'Invalid department.' });
     }
     db.run("UPDATE users SET department = ? WHERE id = ?", [department, req.params.id], function(err) {
-        if (err) return res.status(500).json({ error: err.message });
+        if (err) { console.error('DB Error:', err); return res.status(500).json({ error: 'Internal server error' }); }
         if (this.changes === 0) return res.status(404).json({ error: 'User not found.' });
         res.json({ success: true, id: req.params.id, department });
     });
@@ -1317,7 +1378,7 @@ app.delete('/admin/users/:id', ensureAdmin, (req, res) => {
         return res.status(400).json({ error: 'You cannot delete your own account.' });
     }
     db.get("SELECT id, name, email FROM users WHERE id = ?", [userId], (err, user) => {
-        if (err) return res.status(500).json({ error: err.message });
+        if (err) { console.error('DB Error:', err); return res.status(500).json({ error: 'Internal server error' }); }
         if (!user) return res.status(404).json({ error: 'User not found.' });
         db.run("DELETE FROM saved_news WHERE user_id = ?", [userId], (err2) => {
             db.run("DELETE FROM users WHERE id = ?", [userId], function(err3) {
@@ -1343,7 +1404,7 @@ app.get('/admin/content', ensureAdmin, (req, res) => {
 app.delete('/admin/articles/:newsId', ensureAdmin, (req, res) => {
     const newsId = req.params.newsId;
     db.run("DELETE FROM saved_news WHERE news_id = ?", [newsId], function(err) {
-        if (err) return res.status(500).json({ error: err.message });
+        if (err) { console.error('DB Error:', err); return res.status(500).json({ error: 'Internal server error' }); }
         if (this.changes === 0) return res.status(404).json({ error: 'Article not found.' });
         res.json({ success: true, deleted: this.changes });
     });
@@ -1389,7 +1450,7 @@ app.get('/admin/activity', ensureAdmin, (req, res) => {
     if (deptFilter) params.push(deptFilter);
 
     db.all(sql, params, (err, rows) => {
-        if (err) return res.status(500).json({ error: err.message });
+        if (err) { console.error('DB Error:', err); return res.status(500).json({ error: 'Internal server error' }); }
 
         const users = rows.map(r => ({
             ...r,
@@ -1447,7 +1508,7 @@ app.get('/admin/activity/export', ensureAdmin, (req, res) => {
     if (deptFilter) params.push(deptFilter);
 
     db.all(sql, params, (err, rows) => {
-        if (err) return res.status(500).json({ error: err.message });
+        if (err) { console.error('DB Error:', err); return res.status(500).json({ error: 'Internal server error' }); }
 
         let csv = 'Name,Email,Department,Calls,Items Added,Items Completed,Notes,Articles Saved,Spravochnik,Total\n';
         rows.forEach(r => {
@@ -1466,7 +1527,7 @@ app.get('/make-me-admin', ensureAdmin, (req, res) => {
     const email = req.query.email;
     if(!email) return res.status(400).json({ error: "Provide email" });
     db.run("UPDATE users SET role = 'admin' WHERE email = ?", [email], function(err) {
-        if (err) return res.status(500).json({ error: err.message });
+        if (err) { console.error('DB Error:', err); return res.status(500).json({ error: 'Internal server error' }); }
         if (this.changes === 0) return res.status(404).json({ error: "User not found" });
         res.json({ success: true, message: `User ${email} is now an Admin.` });
     });

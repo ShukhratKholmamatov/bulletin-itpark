@@ -553,6 +553,99 @@ nav button.active { background: var(--primary); color: white; }
     transform: scale(1.1);
 }
 
+/* ✅ Pending Approval Overlay */
+#pending-overlay {
+    position: fixed;
+    top: 0; left: 0;
+    width: 100vw; height: 100vh;
+    background: #f8fafc;
+    z-index: 999;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+#pending-overlay.hidden { display: none; }
+
+.pending-card {
+    text-align: center;
+    background: white;
+    border-radius: 20px;
+    padding: 50px 40px;
+    box-shadow: 0 20px 60px rgba(0,0,0,0.1);
+    max-width: 440px;
+    width: 90%;
+}
+.pending-icon {
+    width: 80px; height: 80px;
+    margin: 0 auto 24px;
+    background: #fff7ed;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 36px;
+    color: #f59e0b;
+    animation: pendingPulse 2s ease-in-out infinite;
+}
+@keyframes pendingPulse {
+    0%, 100% { transform: scale(1); opacity: 1; }
+    50% { transform: scale(1.08); opacity: 0.85; }
+}
+.pending-card h2 {
+    margin: 0 0 12px;
+    font-size: 1.5rem;
+    color: #1e293b;
+}
+.pending-card p {
+    color: #64748b;
+    font-size: 0.95rem;
+    line-height: 1.6;
+    margin: 0 0 24px;
+}
+.pending-info {
+    background: #f1f5f9;
+    border-radius: 12px;
+    padding: 16px;
+    margin-bottom: 24px;
+}
+.pending-user-details {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+.pending-user-details span:first-child {
+    font-weight: 600;
+    color: #1e293b;
+}
+.pending-user-details span:last-child {
+    color: #64748b;
+    font-size: 0.85rem;
+}
+.pending-logout-btn {
+    background: #ef4444 !important;
+    width: 100%;
+    padding: 12px;
+    border-radius: 10px;
+}
+.pending-logout-btn:hover {
+    background: #dc2626 !important;
+}
+
+/* Rejected state */
+#pending-overlay.rejected .pending-icon {
+    background: #fef2f2;
+    color: #ef4444;
+    animation: none;
+}
+
+[data-theme="dark"] #pending-overlay { background: #0f172a; }
+[data-theme="dark"] .pending-card { background: rgba(30,41,59,0.95); border: 1px solid #334155; }
+[data-theme="dark"] .pending-card h2 { color: #e2e8f0; }
+[data-theme="dark"] .pending-card p { color: #94a3b8; }
+[data-theme="dark"] .pending-info { background: #1e293b; }
+[data-theme="dark"] .pending-user-details span:first-child { color: #e2e8f0; }
+[data-theme="dark"] .pending-user-details span:last-child { color: #94a3b8; }
+
 .glass-container {
     position: relative;
     width: 100%;
@@ -1275,6 +1368,14 @@ nav button.active { background: var(--primary); color: white; }
 .admin-action-btn:hover { border-color: var(--primary); color: var(--primary); background: var(--primary-light); }
 .admin-action-btn.delete { padding: 5px 8px; color: #94a3b8; }
 .admin-action-btn.delete:hover { border-color: var(--accent-red); color: var(--accent-red); background: #fef2f2; }
+.admin-action-btn.approve { color: #16a34a; border-color: #bbf7d0; padding: 5px 8px; }
+.admin-action-btn.approve:hover { background: #f0fdf4; border-color: #16a34a; }
+.admin-action-btn.reject { color: #dc2626; border-color: #fecaca; padding: 5px 8px; }
+.admin-action-btn.reject:hover { background: #fef2f2; border-color: #dc2626; }
+.approval-badge { font-size: 0.75rem; padding: 2px 8px; border-radius: 12px; font-weight: 600; display: inline-block; margin-right: 4px; }
+.approval-badge.approved { background: #f0fdf4; color: #16a34a; }
+.approval-badge.pending { background: #fffbeb; color: #d97706; }
+.approval-badge.rejected { background: #fef2f2; color: #dc2626; }
 .admin-actions-group { display: flex; gap: 6px; align-items: center; }
 .admin-dept-inline {
     padding: 5px 8px; border-radius: 6px; border: 1.5px solid #e2e8f0;
@@ -1320,6 +1421,11 @@ nav button.active { background: var(--primary); color: white; }
 [data-theme="dark"] .admin-action-btn { background: #334155; border-color: #475569; color: #94a3b8; }
 [data-theme="dark"] .admin-action-btn:hover { background: var(--primary-light); border-color: var(--primary); color: var(--primary); }
 [data-theme="dark"] .admin-action-btn.delete:hover { background: #3b1a1a; border-color: #f87171; color: #f87171; }
+[data-theme="dark"] .admin-action-btn.approve { border-color: #166534; }
+[data-theme="dark"] .admin-action-btn.reject { border-color: #7f1d1d; }
+[data-theme="dark"] .approval-badge.approved { background: #14532d; color: #4ade80; }
+[data-theme="dark"] .approval-badge.pending { background: #451a03; color: #fbbf24; }
+[data-theme="dark"] .approval-badge.rejected { background: #450a0a; color: #f87171; }
 [data-theme="dark"] .admin-search-box input,
 [data-theme="dark"] .admin-filters select,
 [data-theme="dark"] .admin-dept-inline { background: var(--bg-card); border-color: #334155; color: var(--text-main); }

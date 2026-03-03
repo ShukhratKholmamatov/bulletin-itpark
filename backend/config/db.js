@@ -50,14 +50,23 @@ function initializeTables() {
             photo_url TEXT, 
             password TEXT, 
             department TEXT DEFAULT 'General', 
-            role TEXT DEFAULT 'viewer', 
+            role TEXT DEFAULT 'viewer',
             google_id TEXT,
+            approval_status TEXT DEFAULT 'pending',
             created_at DATETIME DEFAULT CURRENT_TIMESTAMP
         )`);
 
         // Migration: add google_id column if missing
         db.run(`ALTER TABLE users ADD COLUMN google_id TEXT`, (err) => {
             // ignore "duplicate column" error — means it already exists
+        });
+
+        // Migration: add approval_status column if missing
+        db.run(`ALTER TABLE users ADD COLUMN approval_status TEXT DEFAULT 'pending'`, (err) => {
+            if (!err) {
+                // New column added — auto-approve existing admins
+                db.run(`UPDATE users SET approval_status = 'approved' WHERE role = 'admin'`);
+            }
         });
 
         // 2. SAVED NEWS TABLE

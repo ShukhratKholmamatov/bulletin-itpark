@@ -63,14 +63,27 @@ async function fetchCurrentUser() {
         if (res.ok) {
             const user = await res.json();
             currentUser = user;
-            
+
+            // Check approval status
+            if (user.approval_status === 'pending') {
+                showPendingApproval(user);
+                return;
+            }
+            if (user.approval_status === 'rejected') {
+                showRejectedScreen(user);
+                return;
+            }
+
+            // Approved — show app
+            hidePendingOverlay();
+
             // Update UI
             if(document.getElementById('user-name')) document.getElementById('user-name').innerText = user.name;
             if(document.getElementById('user-dept')) document.getElementById('user-dept').innerText = user.department || 'General';
-            
+
             const avatarEl = document.getElementById('user-avatar');
             if(avatarEl) avatarEl.src = user.photo_url || `https://ui-avatars.com/api/?name=${user.name}&background=7dba28&color=fff`;
-            
+
             if(document.getElementById('user-info')) document.getElementById('user-info').style.display = 'flex';
             if(document.getElementById('login-overlay')) document.getElementById('login-overlay').classList.add('hidden');
             document.body.classList.remove('auth-required');
@@ -88,9 +101,41 @@ async function fetchCurrentUser() {
     }
 }
 
+function showPendingApproval(user) {
+    const overlay = document.getElementById('pending-overlay');
+    if (!overlay) return;
+    overlay.classList.remove('hidden', 'rejected');
+    document.getElementById('pending-name').textContent = user.name || '';
+    document.getElementById('pending-email').textContent = user.email || '';
+    document.getElementById('pending-message').textContent = 'Your account has been created and is waiting for administrator approval. Please check back later.';
+    if(document.getElementById('login-overlay')) document.getElementById('login-overlay').classList.add('hidden');
+    document.getElementById('app-wrapper').style.display = 'none';
+}
+
+function showRejectedScreen(user) {
+    const overlay = document.getElementById('pending-overlay');
+    if (!overlay) return;
+    overlay.classList.remove('hidden');
+    overlay.classList.add('rejected');
+    document.getElementById('pending-name').textContent = user.name || '';
+    document.getElementById('pending-email').textContent = user.email || '';
+    document.querySelector('.pending-icon i').className = 'fa-solid fa-circle-xmark';
+    document.querySelector('.pending-card h2').textContent = 'Account Rejected';
+    document.getElementById('pending-message').textContent = 'Your account registration has been rejected by an administrator. Please contact support for more information.';
+    if(document.getElementById('login-overlay')) document.getElementById('login-overlay').classList.add('hidden');
+    document.getElementById('app-wrapper').style.display = 'none';
+}
+
+function hidePendingOverlay() {
+    const overlay = document.getElementById('pending-overlay');
+    if (overlay) overlay.classList.add('hidden');
+    document.getElementById('app-wrapper').style.display = '';
+}
+
 function showLoginWall() {
     currentUser = null;
     document.body.classList.add('auth-required');
+    hidePendingOverlay();
     if(document.getElementById('user-info')) document.getElementById('user-info').style.display = 'none';
     if(document.getElementById('login-overlay')) document.getElementById('login-overlay').classList.remove('hidden');
 }
@@ -151,7 +196,7 @@ async function handleRegister() {
     });
 
     if(res.ok) {
-        alert("Account Created! Logging in...");
+        alert("Account created! Your account is pending admin approval.");
         window.location.reload();
     } else {
         const data = await res.json();
@@ -400,7 +445,7 @@ async function loadAdminUsers() {
     const role = document.getElementById('admin-role-filter')?.value || '';
     const params = new URLSearchParams({ search, department, role });
 
-    tbody.innerHTML = '<tr><td colspan="6" style="text-align:center; padding:30px; color:var(--text-muted);"><i class="fa-solid fa-spinner fa-spin"></i> Loading...</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="7" style="text-align:center; padding:30px; color:var(--text-muted);"><i class="fa-solid fa-spinner fa-spin"></i> Loading...</td></tr>';
 
     try {
         const res = await fetch(`/admin/users?${params}`, { credentials: 'include', headers: { 'Accept': 'application/json' } });
@@ -414,7 +459,7 @@ async function loadAdminUsers() {
         if (countEl) countEl.textContent = `${data.total} user${data.total !== 1 ? 's' : ''} found`;
 
         if (!data.users.length) {
-            tbody.innerHTML = '<tr><td colspan="6" style="text-align:center; padding:30px; color:var(--text-muted);">No users match your filters.</td></tr>';
+            tbody.innerHTML = '<tr><td colspan="7" style="text-align:center; padding:30px; color:var(--text-muted);">No users match your filters.</td></tr>';
             return;
         }
 
@@ -446,6 +491,15 @@ async function loadAdminUsers() {
                         <option value="admin" ${u.role==='admin'?'selected':''}>Admin</option>
                     </select>`}
                 </td>
+                <td>
+                    ${u.approval_status === 'approved'
+                        ? '<span class="approval-badge approved"><i class="fa-solid fa-check-circle"></i> Approved</span>'
+                        : u.approval_status === 'rejected'
+                        ? '<span class="approval-badge rejected"><i class="fa-solid fa-times-circle"></i> Rejected</span>'
+                        : `<span class="approval-badge pending"><i class="fa-solid fa-clock"></i> Pending</span>`}
+                    ${!isSelf && u.approval_status !== 'approved' ? `<button class="admin-action-btn approve" onclick="approveUser('${escapeHtml(u.id)}')" title="Approve"><i class="fa-solid fa-check"></i></button>` : ''}
+                    ${!isSelf && u.approval_status === 'pending' ? `<button class="admin-action-btn reject" onclick="rejectUser('${escapeHtml(u.id)}')" title="Reject"><i class="fa-solid fa-xmark"></i></button>` : ''}
+                </td>
                 <td style="white-space:nowrap;">${date}</td>
                 <td>
                     ${isSelf ? '<span style="color:var(--text-muted); font-size:0.8rem;">—</span>' :
@@ -456,7 +510,7 @@ async function loadAdminUsers() {
             </tr>`;
         }).join('');
     } catch (err) {
-        tbody.innerHTML = '<tr><td colspan="6" style="text-align:center; padding:30px; color:var(--accent-red);">Failed to load users.</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="7" style="text-align:center; padding:30px; color:var(--accent-red);">Failed to load users.</td></tr>';
     }
 }
 
@@ -517,6 +571,38 @@ async function changeUserDept(userId, newDept) {
     } catch (err) {
         alert('Error: ' + err.message);
         loadAdminUsers();
+    }
+}
+
+async function approveUser(userId) {
+    if (!confirm('Approve this user? They will gain access to the platform.')) return;
+    try {
+        const res = await fetch(`/admin/users/${userId}/approve`, {
+            method: 'PUT',
+            headers: { 'Accept': 'application/json' },
+            credentials: 'include'
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || 'Failed');
+        loadAdminUsers();
+    } catch (err) {
+        alert('Error: ' + err.message);
+    }
+}
+
+async function rejectUser(userId) {
+    if (!confirm('Reject this user? They will not be able to access the platform.')) return;
+    try {
+        const res = await fetch(`/admin/users/${userId}/reject`, {
+            method: 'PUT',
+            headers: { 'Accept': 'application/json' },
+            credentials: 'include'
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || 'Failed');
+        loadAdminUsers();
+    } catch (err) {
+        alert('Error: ' + err.message);
     }
 }
 
