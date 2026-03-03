@@ -120,10 +120,10 @@ app.use(helmet({
     crossOriginEmbedderPolicy: false
 }));
 
-// General rate limiter: 200 requests per minute per IP
+// General rate limiter: 500 requests per minute per IP
 app.use(rateLimit({
     windowMs: 60 * 1000,
-    max: 200,
+    max: 500,
     standardHeaders: true,
     legacyHeaders: false,
     message: { error: 'Too many requests, please try again later' }
