@@ -319,14 +319,40 @@ app.post('/auth/avatar', (req, res) => {
    🚀 TELEGRAM SHARE ROUTE
 ========================= */
 app.post('/news/share', async (req, res) => {
-    if (!bot || !telegramChatId) {
-        return res.status(500).json({ error: 'Telegram not configured' });
+    if (!bot) {
+        return res.status(500).json({ error: 'Telegram bot not configured' });
     }
     const { title, description, url, source, topic } = req.body;
+    const message = `<b>📢 IT Park Executive Alert</b>\n\n<b>${title}</b>\n\nℹ️ <i>${description ? description.substring(0, 150) + '...' : ''}</i>\n\n🏷 <b>Topic:</b> #${(topic || 'General').replace(/\s/g, '')}\n📰 <b>Source:</b> ${source || 'Unknown'}\n\n🔗 <a href="${url}">Read Full Article</a>`;
+
     try {
-        const message = `<b>📢 IT Park Executive Alert</b>\n\n<b>${title}</b>\n\nℹ️ <i>${description ? description.substring(0, 150) + '...' : ''}</i>\n\n🏷 <b>Topic:</b> #${(topic || 'General').replace(/\s/g, '')}\n📰 <b>Source:</b> ${source || 'Unknown'}\n\n🔗 <a href="${url}">Read Full Article</a>`;
-        await bot.sendMessage(telegramChatId, message, { parse_mode: 'HTML' });
-        res.json({ success: true });
+        // Collect all chat IDs: from DB + from .env
+        const dbGroups = await new Promise((resolve, reject) => {
+            db.all("SELECT chat_id, name FROM telegram_groups", (err, rows) => {
+                if (err) return reject(err);
+                resolve(rows || []);
+            });
+        });
+        const chatIds = dbGroups.map(g => g.chat_id);
+        if (telegramChatId && !chatIds.includes(telegramChatId)) {
+            chatIds.push(telegramChatId);
+        }
+
+        if (chatIds.length === 0) {
+            return res.status(400).json({ error: 'No Telegram groups configured. Add groups in Admin Panel.' });
+        }
+
+        const results = await Promise.allSettled(
+            chatIds.map(id => bot.sendMessage(id, message, { parse_mode: 'HTML' }))
+        );
+        const sent = results.filter(r => r.status === 'fulfilled').length;
+        const failed = results.filter(r => r.status === 'rejected').length;
+        if (failed > 0) {
+            results.forEach((r, i) => {
+                if (r.status === 'rejected') console.error(`Telegram send failed for ${chatIds[i]}:`, r.reason.message);
+            });
+        }
+        res.json({ success: true, sent, failed, total: chatIds.length });
     } catch (err) {
         console.error("Telegram Send Error:", err.message);
         res.status(500).json({ error: 'Failed to send message' });
@@ -1053,10 +1079,8 @@ app.post('/news/report', async (req, res) => {
         const CW = PW - M * 2;   // content width
         const fontsDir = path.join(__dirname, 'fonts');
 
-        // ---- Compute date range from articles ----
-        const dates = news.map(n => new Date(n.published_at)).filter(d => !isNaN(d));
-        const minDate = dates.length ? new Date(Math.min(...dates)) : new Date();
-        const maxDate = dates.length ? new Date(Math.max(...dates)) : new Date();
+        // ---- Use today's date for the report ----
+        const today = new Date();
         const fmtDate = d => d.toLocaleDateString('en-GB', { day: '2-digit', month: 'long', year: 'numeric' });
 
         // ---- Fetch article images in parallel (resolve Google News URLs + scrape og:image) ----
@@ -1102,13 +1126,13 @@ app.post('/news/report', async (req, res) => {
            .text('Weekly Bulletin of IT News\nand Articles', M, doc.y, { align: 'center', width: CW });
         doc.moveDown(0.8);
         doc.font('Cambria-Italic').fontSize(14).fillColor(RED)
-           .text(`(${fmtDate(minDate)} – ${fmtDate(maxDate)})`, M, doc.y, { align: 'center', width: CW });
+           .text(`(${fmtDate(today)})`, M, doc.y, { align: 'center', width: CW });
 
         // Bottom: Department + Tashkent line
         doc.font('Cambria-Bold').fontSize(13).fillColor(BLACK)
            .text('Department of Strategy and Analysis', M, PH - 180, { align: 'center', width: CW });
-        const monthName = maxDate.toLocaleDateString('en-US', { month: 'long' });
-        const yearStr = maxDate.getFullYear().toString();
+        const monthName = today.toLocaleDateString('en-US', { month: 'long' });
+        const yearStr = today.getFullYear().toString();
         const tashStr = `Tashkent, ${monthName} `;
         doc.font('Cambria').fontSize(13);
         const tashW = doc.widthOfString(tashStr);
@@ -1407,6 +1431,36 @@ app.delete('/admin/articles/:newsId', ensureAdmin, (req, res) => {
         if (err) { console.error('DB Error:', err); return res.status(500).json({ error: 'Internal server error' }); }
         if (this.changes === 0) return res.status(404).json({ error: 'Article not found.' });
         res.json({ success: true, deleted: this.changes });
+    });
+});
+
+// ── Admin Telegram Groups ──
+app.get('/admin/telegram-groups', ensureAdmin, (req, res) => {
+    db.all("SELECT id, chat_id, name, created_at FROM telegram_groups ORDER BY created_at DESC", (err, rows) => {
+        if (err) { console.error('DB Error:', err); return res.status(500).json({ error: 'Internal server error' }); }
+        res.json(rows || []);
+    });
+});
+
+app.post('/admin/telegram-groups', ensureAdmin, (req, res) => {
+    const { chat_id, name } = req.body;
+    if (!chat_id || !name) return res.status(400).json({ error: 'Chat ID and name are required' });
+    db.run("INSERT INTO telegram_groups (chat_id, name, added_by) VALUES (?, ?, ?)",
+        [chat_id.trim(), name.trim(), req.user.id], function(err) {
+            if (err) {
+                if (err.message.includes('UNIQUE')) return res.status(409).json({ error: 'This chat ID already exists' });
+                console.error('DB Error:', err);
+                return res.status(500).json({ error: 'Internal server error' });
+            }
+            res.json({ success: true, id: this.lastID });
+        });
+});
+
+app.delete('/admin/telegram-groups/:id', ensureAdmin, (req, res) => {
+    db.run("DELETE FROM telegram_groups WHERE id = ?", [req.params.id], function(err) {
+        if (err) { console.error('DB Error:', err); return res.status(500).json({ error: 'Internal server error' }); }
+        if (this.changes === 0) return res.status(404).json({ error: 'Group not found' });
+        res.json({ success: true });
     });
 });
 

@@ -244,6 +244,16 @@ function initializeTables() {
             FOREIGN KEY(sender_id) REFERENCES users(id),
             FOREIGN KEY(receiver_id) REFERENCES users(id)
         )`);
+
+        // 16. TELEGRAM GROUPS TABLE (for multi-group sharing)
+        db.run(`CREATE TABLE IF NOT EXISTS telegram_groups (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            chat_id TEXT NOT NULL UNIQUE,
+            name TEXT NOT NULL,
+            added_by TEXT,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY(added_by) REFERENCES users(id)
+        )`);
     });
 }
 

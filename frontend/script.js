@@ -380,6 +380,7 @@ function showAdminSection(section) {
     else if (section === 'users') loadAdminUsers();
     else if (section === 'content') loadAdminContent();
     else if (section === 'activity') loadAdminActivity();
+    else if (section === 'telegram') loadTelegramGroups();
 }
 
 async function loadAdminOverview() {
@@ -767,6 +768,71 @@ function sortActivityTable(col) {
 function exportActivityCSV() {
     const params = getActivityParams();
     window.open(`/admin/activity/export?${params}`, '_blank');
+}
+
+/* =========================
+   ADMIN: TELEGRAM GROUPS
+========================= */
+async function loadTelegramGroups() {
+    const list = document.getElementById('tg-groups-list');
+    if (!list) return;
+    list.innerHTML = '<div style="text-align:center; padding:20px; color:var(--text-muted);"><i class="fa-solid fa-spinner fa-spin"></i> Loading...</div>';
+    try {
+        const res = await fetch('/admin/telegram-groups', { credentials: 'include' });
+        if (!res.ok) throw new Error('Failed');
+        const groups = await res.json();
+        if (groups.length === 0) {
+            list.innerHTML = '<div style="text-align:center; padding:30px; color:#94a3b8;">No Telegram groups configured yet. Add one above.</div>';
+            return;
+        }
+        list.innerHTML = '<table class="admin-table"><thead><tr><th>Group Name</th><th>Chat ID</th><th>Added</th><th>Actions</th></tr></thead><tbody>' +
+            groups.map(g => `<tr>
+                <td><i class="fa-brands fa-telegram" style="color:#229ED9; margin-right:8px;"></i>${escapeHtml(g.name)}</td>
+                <td><code style="background:#f1f5f9; padding:3px 8px; border-radius:4px; font-size:0.85rem;">${escapeHtml(g.chat_id)}</code></td>
+                <td>${new Date(g.created_at).toLocaleDateString()}</td>
+                <td><button class="admin-action-btn reject" onclick="removeTelegramGroup(${g.id})" title="Remove"><i class="fa-solid fa-trash"></i></button></td>
+            </tr>`).join('') + '</tbody></table>';
+    } catch (e) {
+        list.innerHTML = '<div style="color:#ef4444; padding:20px;">Failed to load groups.</div>';
+    }
+}
+
+async function addTelegramGroup() {
+    const nameInput = document.getElementById('tg-group-name');
+    const chatIdInput = document.getElementById('tg-group-chatid');
+    const name = nameInput.value.trim();
+    const chat_id = chatIdInput.value.trim();
+    if (!name || !chat_id) return alert('Please enter both group name and chat ID.');
+
+    try {
+        const res = await fetch('/admin/telegram-groups', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            credentials: 'include',
+            body: JSON.stringify({ name, chat_id })
+        });
+        const data = await res.json();
+        if (!res.ok) return alert(data.error || 'Failed to add group');
+        nameInput.value = '';
+        chatIdInput.value = '';
+        loadTelegramGroups();
+    } catch (e) {
+        alert('Failed to add group.');
+    }
+}
+
+async function removeTelegramGroup(id) {
+    if (!confirm('Remove this Telegram group?')) return;
+    try {
+        const res = await fetch(`/admin/telegram-groups/${id}`, {
+            method: 'DELETE',
+            credentials: 'include'
+        });
+        if (!res.ok) throw new Error('Failed');
+        loadTelegramGroups();
+    } catch (e) {
+        alert('Failed to remove group.');
+    }
 }
 
 /* =========================
@@ -1989,7 +2055,6 @@ function showTab(tab) {
   const newsContainer = document.getElementById('news-container');
   const dashContainer = document.getElementById('dashboard-container');
   const nlaContainer = document.getElementById('nla-container');
-  const statsContainer = document.getElementById('stats-container');
   const adminContainer = document.getElementById('admin-container');
   const workspaceContainer = document.getElementById('workspace-container');
 
@@ -2001,7 +2066,6 @@ function showTab(tab) {
   if(newsContainer) newsContainer.style.display = 'none';
   if(dashContainer) dashContainer.style.display = 'none';
   if(nlaContainer) nlaContainer.style.display = 'none';
-  if(statsContainer) statsContainer.style.display = 'none';
   if(adminContainer) adminContainer.style.display = 'none';
   if(workspaceContainer) workspaceContainer.style.display = 'none';
   if(filters) filters.style.display = 'flex';
@@ -2028,11 +2092,6 @@ function showTab(tab) {
     if(nlaContainer) nlaContainer.style.display = 'block';
     if(nlaState.step === 0) renderNLA(); 
     else renderNLA(); 
-
-  } else if (tab === 'stats') {
-    if(tabTitle) tabTitle.innerText = 'IT Ecosystem Statistics';
-    if(statsContainer) statsContainer.style.display = 'block';
-    loadStats();
 
   } else if (tab === 'workspace') {
     if(tabTitle) tabTitle.innerText = 'My Workspace';

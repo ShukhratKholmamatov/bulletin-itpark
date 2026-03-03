@@ -192,9 +192,6 @@
                     <button onclick="showTab('nla')" id="tab-nla">
                         <i class="fa-solid fa-gavel"></i> Legislation (NLA)
                     </button>
-                    <button onclick="showTab('stats')" id="tab-stats">
-                        <i class="fa-solid fa-building"></i> Statistics & Hubs
-                    </button>
                     <button onclick="showTab('admin')" id="tab-admin" style="display:none;">
                         <i class="fa-solid fa-shield-halved"></i> Admin Panel
                     </button>
@@ -328,11 +325,6 @@
                     </div>
                 </div>
 
-                <div id="stats-container" class="tab-content" style="display:none;">
-                    <div class="stats-grid" id="stats-grid"></div>
-                </div>
-
-
                 <div id="admin-container" class="tab-content" style="display:none;">
                     <div class="admin-subnav">
                         <button class="admin-subnav-btn active" onclick="showAdminSection('overview')" id="admin-sub-overview">
@@ -346,6 +338,9 @@
                         </button>
                         <button class="admin-subnav-btn" onclick="showAdminSection('activity')" id="admin-sub-activity">
                             <i class="fa-solid fa-chart-simple"></i> Activity
+                        </button>
+                        <button class="admin-subnav-btn" onclick="showAdminSection('telegram')" id="admin-sub-telegram">
+                            <i class="fa-brands fa-telegram"></i> Telegram
                         </button>
                     </div>
 
@@ -498,6 +493,21 @@
                                 </thead>
                                 <tbody id="activity-tbody"></tbody>
                             </table>
+                        </div>
+                    </div>
+
+                    <div id="admin-telegram" class="admin-section" style="display:none;">
+                        <div class="admin-chart-card">
+                            <h3><i class="fa-brands fa-telegram"></i> Telegram Groups</h3>
+                            <p style="color:#64748b; margin-bottom:16px;">News shared via Telegram will be sent to all groups below.</p>
+                            <div class="tg-add-form" style="display:flex; gap:10px; margin-bottom:20px; flex-wrap:wrap;">
+                                <input type="text" id="tg-group-name" placeholder="Group name (e.g. IT Park News)" style="flex:1; min-width:150px; padding:10px 14px; border:1px solid #e2e8f0; border-radius:8px; font-size:0.9rem;">
+                                <input type="text" id="tg-group-chatid" placeholder="Chat ID (e.g. -1001234567890)" style="flex:1; min-width:180px; padding:10px 14px; border:1px solid #e2e8f0; border-radius:8px; font-size:0.9rem;">
+                                <button onclick="addTelegramGroup()" class="primary-btn" style="padding:10px 20px; white-space:nowrap;">
+                                    <i class="fa-solid fa-plus"></i> Add Group
+                                </button>
+                            </div>
+                            <div id="tg-groups-list"></div>
                         </div>
                     </div>
                 </div>
