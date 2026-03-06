@@ -1869,35 +1869,54 @@ app.post('/hr/users/:id/assign', ensureHR, (req, res) => {
         if (err) { console.error('DB Error:', err); return res.status(500).json({ error: 'Internal server error' }); }
         if (!intern) return res.status(404).json({ error: 'Intern not found.' });
 
-        db.run(
-            `INSERT INTO intern_assignments (intern_id, assigned_to, assigned_by, department, notes)
-             VALUES (?, ?, ?, ?, ?)`,
-            [req.params.id, assigned_to, req.user.id, intern.department, notes || null],
-            function(err2) {
-                if (err2) { console.error('DB Error:', err2); return res.status(500).json({ error: 'Internal server error' }); }
+        // Fetch intern's uploaded documents to include in the task
+        db.all("SELECT doc_type, original_name, file_path, label FROM user_documents WHERE user_id = ?", [req.params.id], (errDocs, docs) => {
+            const docList = (docs || []).map(d => {
+                const typeName = (d.label || d.doc_type).replace(/_/g, ' ');
+                return `- ${typeName}: ${d.original_name}`;
+            }).join('\n');
 
-                // Create task for the assigned team member
-                db.run(
-                    `INSERT INTO tasks (title, description, assigned_to, assigned_by, department, priority, status, deadline)
-                     VALUES (?, ?, ?, ?, ?, 'high', 'pending', ?)`,
-                    [
-                        `Mentor Intern: ${intern.name}`,
-                        `HR has assigned intern ${intern.name} (${intern.email}) to you for mentoring.${notes ? ' Notes: ' + notes : ''}`,
-                        assigned_to, req.user.id, intern.department,
-                        intern.trial_end_date || null
-                    ]
-                );
+            const description = [
+                `HR has assigned intern ${intern.name} (${intern.email}) to you for mentoring.`,
+                intern.phone ? `Phone: ${intern.phone}` : '',
+                intern.department ? `Department: ${intern.department}` : '',
+                intern.trial_start_date ? `Trial Period: ${intern.trial_start_date} — ${intern.trial_end_date}` : '',
+                notes ? `\nHR Notes: ${notes}` : '',
+                docList ? `\nUploaded Documents:\n${docList}` : '\nNo documents uploaded yet.'
+            ].filter(Boolean).join('\n');
 
-                // Notify the assigned member
-                db.run(
-                    `INSERT INTO notifications (target_user_id, type, title, message, related_user_id)
-                     VALUES (?, 'intern_assigned', 'Intern Assigned to You', ?, ?)`,
-                    [assigned_to, `HR assigned intern ${intern.name} to you for mentoring.`, req.params.id]
-                );
+            db.run(
+                `INSERT INTO intern_assignments (intern_id, assigned_to, assigned_by, department, notes)
+                 VALUES (?, ?, ?, ?, ?)`,
+                [req.params.id, assigned_to, req.user.id, intern.department, notes || null],
+                function(err2) {
+                    if (err2) { console.error('DB Error:', err2); return res.status(500).json({ error: 'Internal server error' }); }
 
-                res.json({ success: true, id: this.lastID });
-            }
-        );
+                    // Create task with full intern info + documents
+                    db.run(
+                        `INSERT INTO tasks (title, description, assigned_to, assigned_by, department, priority, status, deadline)
+                         VALUES (?, ?, ?, ?, ?, 'high', 'pending', ?)`,
+                        [
+                            `Mentor Intern: ${intern.name}`,
+                            description,
+                            assigned_to, req.user.id, intern.department,
+                            intern.trial_end_date || null
+                        ]
+                    );
+
+                    // Notify the assigned member with document info
+                    const notifMsg = `HR assigned intern ${intern.name} (${intern.email}) to you for mentoring.` +
+                        (docList ? ` Documents: ${(docs || []).length} file(s) uploaded.` : ' No documents yet.');
+                    db.run(
+                        `INSERT INTO notifications (target_user_id, type, title, message, related_user_id)
+                         VALUES (?, 'intern_assigned', 'Intern Assigned to You', ?, ?)`,
+                        [assigned_to, notifMsg, req.params.id]
+                    );
+
+                    res.json({ success: true, id: this.lastID });
+                }
+            );
+        });
     });
 });
 
