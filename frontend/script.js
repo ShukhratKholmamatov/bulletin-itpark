@@ -1630,13 +1630,26 @@ function renderTaskCard(t, viewMode) {
             <span class="task-status task-status-${t.status}"><i class="fa-solid ${statusIcons[t.status] || 'fa-clock'}"></i> ${t.status.replace('_', ' ')}</span>
         </div>
         <div class="task-card-title">${escapeHtml(t.title)}</div>
-        ${t.description ? `<div class="task-card-desc">${escapeHtml(t.description)}</div>` : ''}
+        ${t.description ? `<div class="task-card-desc">${formatTaskDescription(t.description)}</div>` : ''}
         <div class="task-card-footer">
             ${personInfo}
             ${deadlineStr ? `<span class="task-deadline ${isOverdue ? 'overdue' : ''}"><i class="fa-solid fa-calendar"></i> ${deadlineStr}</span>` : ''}
             <div class="task-card-actions">${actions}</div>
         </div>
     </div>`;
+}
+
+function formatTaskDescription(desc) {
+    // Escape HTML first, then convert [DOWNLOAD:path] to clickable links and preserve newlines
+    let safe = escapeHtml(desc);
+    // Convert [DOWNLOAD:/uploads/documents/userId/filename] to download links
+    safe = safe.replace(/\[DOWNLOAD:(\/uploads\/documents\/[^\]]+)\]/g, (match, path) => {
+        const fileName = path.split('/').pop();
+        return `<a href="${path}" target="_blank" class="task-doc-link"><i class="fa-solid fa-download"></i> Download</a>`;
+    });
+    // Preserve newlines
+    safe = safe.replace(/\n/g, '<br>');
+    return safe;
 }
 
 // Task assignment modal

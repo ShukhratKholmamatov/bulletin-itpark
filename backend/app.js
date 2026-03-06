@@ -1757,12 +1757,21 @@ app.post('/hr/documents/upload', ensureAuth, documentUpload.single('document'), 
 // --- Serve document files (authenticated) ---
 app.get('/uploads/documents/:userId/:filename', ensureAuth, (req, res) => {
     const { userId, filename } = req.params;
-    if (req.user.department !== 'HR' && req.user.role !== 'admin' && req.user.id !== userId) {
-        return res.status(403).json({ error: 'Access denied.' });
+    // Allow: HR, admin, self, or assigned mentor
+    if (req.user.department === 'HR' || req.user.role === 'admin' || req.user.id === userId) {
+        const filePath = path.join(documentsDir, userId, filename);
+        if (!fs.existsSync(filePath)) return res.status(404).json({ error: 'File not found.' });
+        return res.sendFile(filePath);
     }
-    const filePath = path.join(documentsDir, userId, filename);
-    if (!fs.existsSync(filePath)) return res.status(404).json({ error: 'File not found.' });
-    res.sendFile(filePath);
+    // Check if the requesting user is assigned as mentor for this intern
+    db.get("SELECT id FROM intern_assignments WHERE intern_id = ? AND assigned_to = ? AND status = 'active'",
+        [userId, req.user.id], (err, assignment) => {
+            if (err || !assignment) return res.status(403).json({ error: 'Access denied.' });
+            const filePath = path.join(documentsDir, userId, filename);
+            if (!fs.existsSync(filePath)) return res.status(404).json({ error: 'File not found.' });
+            res.sendFile(filePath);
+        }
+    );
 });
 
 // --- Delete Document ---
@@ -1871,9 +1880,10 @@ app.post('/hr/users/:id/assign', ensureHR, (req, res) => {
 
         // Fetch intern's uploaded documents to include in the task
         db.all("SELECT doc_type, original_name, file_path, label FROM user_documents WHERE user_id = ?", [req.params.id], (errDocs, docs) => {
+            // Build document list with download links
             const docList = (docs || []).map(d => {
                 const typeName = (d.label || d.doc_type).replace(/_/g, ' ');
-                return `- ${typeName}: ${d.original_name}`;
+                return `- ${typeName}: ${d.original_name} [DOWNLOAD:${d.file_path}]`;
             }).join('\n');
 
             const description = [
@@ -1892,7 +1902,7 @@ app.post('/hr/users/:id/assign', ensureHR, (req, res) => {
                 function(err2) {
                     if (err2) { console.error('DB Error:', err2); return res.status(500).json({ error: 'Internal server error' }); }
 
-                    // Create task with full intern info + documents
+                    // Create task with full intern info + documents + metadata
                     db.run(
                         `INSERT INTO tasks (title, description, assigned_to, assigned_by, department, priority, status, deadline)
                          VALUES (?, ?, ?, ?, ?, 'high', 'pending', ?)`,
@@ -1913,7 +1923,7 @@ app.post('/hr/users/:id/assign', ensureHR, (req, res) => {
                         [assigned_to, notifMsg, req.params.id]
                     );
 
-                    res.json({ success: true, id: this.lastID });
+                    res.json({ success: true, id: this.lastID, documents: (docs || []).map(d => ({ type: (d.label || d.doc_type).replace(/_/g, ' '), name: d.original_name, path: d.file_path })) });
                 }
             );
         });
