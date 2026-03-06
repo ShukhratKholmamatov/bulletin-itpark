@@ -36,8 +36,10 @@ if (!process.env.SESSION_SECRET || process.env.SESSION_SECRET.length < 16) {
 // --- Upload Directories ---
 const avatarsDir = path.join(__dirname, 'uploads', 'avatars');
 const announcementsDir = path.join(__dirname, 'uploads', 'announcements');
+const documentsDir = path.join(__dirname, 'uploads', 'documents');
 if (!fs.existsSync(avatarsDir)) fs.mkdirSync(avatarsDir, { recursive: true });
 if (!fs.existsSync(announcementsDir)) fs.mkdirSync(announcementsDir, { recursive: true });
+if (!fs.existsSync(documentsDir)) fs.mkdirSync(documentsDir, { recursive: true });
 const avatarStorage = multer.diskStorage({
     destination: (req, file, cb) => cb(null, avatarsDir),
     filename: (req, file, cb) => {
@@ -73,6 +75,32 @@ const announcementUpload = multer({
         const ext = path.extname(file.originalname).toLowerCase();
         if (allowed.includes(ext)) cb(null, true);
         else cb(new Error('Only image files are allowed'));
+    }
+});
+
+// --- Document Upload Setup (PDFs + images for HR documents & certificates) ---
+const documentStorage = multer.diskStorage({
+    destination: (req, file, cb) => {
+        const userId = req.user ? req.user.id : 'unknown';
+        const userDir = path.join(documentsDir, userId);
+        if (!fs.existsSync(userDir)) fs.mkdirSync(userDir, { recursive: true });
+        cb(null, userDir);
+    },
+    filename: (req, file, cb) => {
+        const ext = path.extname(file.originalname).toLowerCase();
+        const docType = req.body.doc_type || 'document';
+        const timestamp = Date.now();
+        cb(null, `${docType}-${timestamp}${ext}`);
+    }
+});
+const documentUpload = multer({
+    storage: documentStorage,
+    limits: { fileSize: 10 * 1024 * 1024 }, // 10MB for PDFs
+    fileFilter: (req, file, cb) => {
+        const allowed = ['.jpg', '.jpeg', '.png', '.pdf'];
+        const ext = path.extname(file.originalname).toLowerCase();
+        if (allowed.includes(ext)) cb(null, true);
+        else cb(new Error('Only PDF and image files (JPG, PNG) are allowed'));
     }
 });
 
@@ -173,6 +201,17 @@ function ensureHR(req, res, next) {
         return next();
     }
     return res.status(403).json({ error: 'HR access required.' });
+}
+
+function ensureAdminAffairs(req, res, next) {
+    if (req.isAuthenticated() && (
+        req.user.department === 'Administrative Affairs' ||
+        req.user.department === 'HR' ||
+        req.user.role === 'admin'
+    )) {
+        return next();
+    }
+    return res.status(403).json({ error: 'Administrative Affairs access required.' });
 }
 
 app.use(express.json({ limit: '50mb' }));
@@ -282,7 +321,7 @@ app.put('/auth/profile', (req, res) => {
     const { name, department } = req.body;
     if (!name || !name.trim()) return res.status(400).json({ error: 'Name is required' });
 
-    const allowedDepts = ['Product Export','Startup Ecosystem','Western Markets','Eastern Markets','GovTech','Venture Capital','Analytics','BPO Monitoring','Residents Relations','Residents Registration','Residents Monitoring','Softlanding','Legal Ecosystem','AI Infrastructure','AI Research','Inclusive Projects','Regional Development','Freelancers & Youth','Infrastructure','Infrastructure Dev','PPP Investors','IT Outsourcing','Global Marketing','Multimedia','Public Relations','Marketing','Event Management'];
+    const allowedDepts = ['Product Export','Startup Ecosystem','Western Markets','Eastern Markets','GovTech','Venture Capital','Analytics','BPO Monitoring','Residents Relations','Residents Registration','Residents Monitoring','Softlanding','Legal Ecosystem','AI Infrastructure','AI Research','Inclusive Projects','Regional Development','Freelancers & Youth','Infrastructure','Infrastructure Dev','PPP Investors','IT Outsourcing','Global Marketing','Multimedia','Public Relations','Marketing','Event Management','International Relations','HR','Administrative Affairs'];
     const dept = allowedDepts.includes(department) ? department : department || 'Analytics';
 
     db.run(`UPDATE users SET name = ?, department = ? WHERE id = ?`, [name.trim(), dept, req.user.id], function(err) {
@@ -1384,7 +1423,7 @@ app.put('/admin/users/:id/reject', ensureAdmin, (req, res) => {
 // Change user department
 app.put('/admin/users/:id/department', ensureAdmin, (req, res) => {
     const { department } = req.body;
-    const validDepts = ['Product Export','Startup Ecosystem','Western Markets','Eastern Markets','GovTech','Venture Capital','Analytics','BPO Monitoring','Residents Relations','Residents Registration','Residents Monitoring','Softlanding','Legal Ecosystem','AI Infrastructure','AI Research','Inclusive Projects','Regional Development','Freelancers & Youth','Infrastructure','Infrastructure Dev','PPP Investors','IT Outsourcing','Global Marketing','Multimedia','Public Relations','Marketing','Event Management','International Relations','HR'];
+    const validDepts = ['Product Export','Startup Ecosystem','Western Markets','Eastern Markets','GovTech','Venture Capital','Analytics','BPO Monitoring','Residents Relations','Residents Registration','Residents Monitoring','Softlanding','Legal Ecosystem','AI Infrastructure','AI Research','Inclusive Projects','Regional Development','Freelancers & Youth','Infrastructure','Infrastructure Dev','PPP Investors','IT Outsourcing','Global Marketing','Multimedia','Public Relations','Marketing','Event Management','International Relations','HR','Administrative Affairs'];
     if (!validDepts.includes(department)) {
         return res.status(400).json({ error: 'Invalid department.' });
     }
@@ -1576,6 +1615,356 @@ app.get('/admin/activity/export', ensureAdmin, (req, res) => {
     });
 });
 
+/* =========================
+   👥 HR MODULE ROUTES
+========================= */
+
+// --- Intern Application (public, rate-limited) ---
+app.post('/hr/intern-apply', authLimiter, (req, res) => {
+    const { name, email, phone, password } = req.body;
+    if (!name || !email || !password) {
+        return res.status(400).json({ error: 'Name, email, and password are required.' });
+    }
+    const id = 'intern_' + Date.now() + '_' + Math.random().toString(36).substr(2, 6);
+    const hashedPw = bcrypt.hashSync(password, 10);
+    const photoUrl = `https://ui-avatars.com/api/?name=${encodeURIComponent(name)}&background=6366f1&color=fff&size=128`;
+
+    db.run(
+        `INSERT INTO users (id, email, name, photo_url, password, department, role, approval_status, employment_status, phone)
+         VALUES (?, ?, ?, ?, ?, 'General', 'viewer', 'pending', 'intern', ?)`,
+        [id, email, name, photoUrl, hashedPw, phone || null],
+        function(err) {
+            if (err) {
+                if (err.message.includes('UNIQUE')) return res.status(409).json({ error: 'Email already registered.' });
+                console.error('DB Error:', err);
+                return res.status(500).json({ error: 'Internal server error' });
+            }
+            // Notify HR about new intern application
+            db.run(
+                `INSERT INTO notifications (target_department, type, title, message, related_user_id)
+                 VALUES ('HR', 'intern_application', 'New Intern Application', ?, ?)`,
+                [`${name} (${email}) has applied as an intern.`, id]
+            );
+            res.json({ success: true, message: 'Application submitted. HR will review it shortly.' });
+        }
+    );
+});
+
+// --- HR Dashboard ---
+app.get('/hr/dashboard', ensureHR, (req, res) => {
+    const stats = {};
+    db.serialize(() => {
+        db.get("SELECT COUNT(*) as total FROM users WHERE approval_status = 'approved'", (err, r) => { stats.totalUsers = r ? r.total : 0; });
+        db.get("SELECT COUNT(*) as total FROM users WHERE employment_status = 'intern'", (err, r) => { stats.interns = r ? r.total : 0; });
+        db.get("SELECT COUNT(*) as total FROM users WHERE employment_status = 'on_hold'", (err, r) => { stats.onHold = r ? r.total : 0; });
+        db.get("SELECT COUNT(*) as total FROM users WHERE employment_status = 'employee' AND approval_status = 'approved'", (err, r) => { stats.employees = r ? r.total : 0; });
+        db.get("SELECT COUNT(*) as total FROM users WHERE approval_status = 'pending' AND employment_status = 'intern'", (err, r) => { stats.pendingInterns = r ? r.total : 0; });
+        db.all(
+            `SELECT u.id, u.name, u.email, u.employment_status, u.trial_end_date,
+                    CAST(julianday(u.trial_end_date) - julianday('now') AS INTEGER) as days_left
+             FROM users u
+             WHERE u.employment_status = 'on_hold' AND u.trial_end_date IS NOT NULL
+             AND julianday(u.trial_end_date) - julianday('now') <= 14
+             ORDER BY u.trial_end_date ASC`,
+            (err, rows) => {
+                stats.trialWarnings = rows || [];
+                res.json(stats);
+            }
+        );
+    });
+});
+
+// --- HR Users List ---
+app.get('/hr/users', ensureHR, (req, res) => {
+    const { status, department, search } = req.query;
+    let sql = `SELECT u.id, u.name, u.email, u.photo_url, u.department, u.role,
+                      u.approval_status, u.employment_status, u.phone,
+                      u.trial_start_date, u.trial_end_date, u.target_department, u.created_at,
+                      (SELECT COUNT(*) FROM user_documents d WHERE d.user_id = u.id AND d.doc_type != 'certificate') as doc_count,
+                      (SELECT COUNT(*) FROM user_documents d WHERE d.user_id = u.id AND d.doc_type = 'certificate') as cert_count
+               FROM users u WHERE 1=1`;
+    const params = [];
+    if (status) { sql += ` AND u.employment_status = ?`; params.push(status); }
+    if (department) { sql += ` AND u.department = ?`; params.push(department); }
+    if (search) { sql += ` AND (u.name LIKE ? OR u.email LIKE ?)`; params.push(`%${search}%`, `%${search}%`); }
+    sql += ` ORDER BY u.created_at DESC`;
+
+    db.all(sql, params, (err, rows) => {
+        if (err) { console.error('DB Error:', err); return res.status(500).json({ error: 'Internal server error' }); }
+        res.json({ users: rows || [] });
+    });
+});
+
+// --- User Documents ---
+app.get('/hr/users/:id/documents', ensureAuth, (req, res) => {
+    const userId = req.params.id;
+    // HR can view anyone's docs; users can view their own
+    if (req.user.department !== 'HR' && req.user.role !== 'admin' && req.user.id !== userId) {
+        return res.status(403).json({ error: 'Access denied.' });
+    }
+    db.all("SELECT * FROM user_documents WHERE user_id = ? ORDER BY created_at DESC", [userId], (err, rows) => {
+        if (err) { console.error('DB Error:', err); return res.status(500).json({ error: 'Internal server error' }); }
+        res.json({ documents: rows || [] });
+    });
+});
+
+// --- My Document Status (for interns to check upload progress) ---
+app.get('/hr/documents/my-status', ensureAuth, (req, res) => {
+    db.all("SELECT doc_type, id, original_name, created_at FROM user_documents WHERE user_id = ?", [req.user.id], (err, rows) => {
+        if (err) { console.error('DB Error:', err); return res.status(500).json({ error: 'Internal server error' }); }
+        const uploaded = {};
+        (rows || []).forEach(r => { uploaded[r.doc_type] = { id: r.id, name: r.original_name, date: r.created_at }; });
+        res.json({ uploaded });
+    });
+});
+
+// --- Upload Document ---
+app.post('/hr/documents/upload', ensureAuth, documentUpload.single('document'), (req, res) => {
+    if (!req.file) return res.status(400).json({ error: 'No file uploaded.' });
+    const docType = req.body.doc_type || 'certificate';
+    const label = req.body.label || null;
+    const filePath = `/uploads/documents/${req.user.id}/${req.file.filename}`;
+
+    db.run(
+        `INSERT INTO user_documents (user_id, doc_type, original_name, file_path, file_size, mime_type, label)
+         VALUES (?, ?, ?, ?, ?, ?, ?)`,
+        [req.user.id, docType, req.file.originalname, filePath, req.file.size, req.file.mimetype, label],
+        function(err) {
+            if (err) { console.error('DB Error:', err); return res.status(500).json({ error: 'Internal server error' }); }
+
+            // Check if intern has all required docs uploaded
+            if (req.user.employment_status === 'intern') {
+                const requiredTypes = ['photo_3x4', 'passport', 'inn', 'diploma', 'resume'];
+                db.all("SELECT DISTINCT doc_type FROM user_documents WHERE user_id = ? AND doc_type IN ('photo_3x4','passport','inn','diploma','resume')",
+                    [req.user.id], (err2, rows) => {
+                        const uploadedTypes = (rows || []).map(r => r.doc_type);
+                        if (requiredTypes.every(t => uploadedTypes.includes(t))) {
+                            db.run(
+                                `INSERT INTO notifications (target_department, type, title, message, related_user_id)
+                                 VALUES ('HR', 'intern_docs_uploaded', 'Documents Uploaded', ?, ?)`,
+                                [`${req.user.name} has uploaded all required documents.`, req.user.id]
+                            );
+                        }
+                    }
+                );
+            }
+
+            res.json({ success: true, id: this.lastID, file_path: filePath, doc_type: docType });
+        }
+    );
+});
+
+// --- Serve document files (authenticated) ---
+app.get('/uploads/documents/:userId/:filename', ensureAuth, (req, res) => {
+    const { userId, filename } = req.params;
+    if (req.user.department !== 'HR' && req.user.role !== 'admin' && req.user.id !== userId) {
+        return res.status(403).json({ error: 'Access denied.' });
+    }
+    const filePath = path.join(documentsDir, userId, filename);
+    if (!fs.existsSync(filePath)) return res.status(404).json({ error: 'File not found.' });
+    res.sendFile(filePath);
+});
+
+// --- Delete Document ---
+app.delete('/hr/documents/:docId', ensureAuth, (req, res) => {
+    db.get("SELECT * FROM user_documents WHERE id = ?", [req.params.docId], (err, doc) => {
+        if (err) { console.error('DB Error:', err); return res.status(500).json({ error: 'Internal server error' }); }
+        if (!doc) return res.status(404).json({ error: 'Document not found.' });
+        if (req.user.department !== 'HR' && req.user.role !== 'admin' && req.user.id !== doc.user_id) {
+            return res.status(403).json({ error: 'Access denied.' });
+        }
+        // Delete file from disk
+        const fullPath = path.join(__dirname, doc.file_path);
+        if (fs.existsSync(fullPath)) fs.unlinkSync(fullPath);
+        db.run("DELETE FROM user_documents WHERE id = ?", [req.params.docId], (err2) => {
+            if (err2) { console.error('DB Error:', err2); return res.status(500).json({ error: 'Internal server error' }); }
+            res.json({ success: true });
+        });
+    });
+});
+
+// --- Approve Intern ---
+app.put('/hr/users/:id/approve-intern', ensureHR, (req, res) => {
+    db.run("UPDATE users SET approval_status = 'approved' WHERE id = ? AND employment_status = 'intern'",
+        [req.params.id], function(err) {
+            if (err) { console.error('DB Error:', err); return res.status(500).json({ error: 'Internal server error' }); }
+            if (this.changes === 0) return res.status(404).json({ error: 'Intern not found.' });
+            db.run(
+                `INSERT INTO notifications (target_user_id, type, title, message, related_user_id)
+                 VALUES (?, 'intern_approved', 'Application Approved', 'Your intern application has been approved! Please upload your required documents.', ?)`,
+                [req.params.id, req.params.id]
+            );
+            res.json({ success: true });
+        }
+    );
+});
+
+// --- Change Employment Status ---
+app.put('/hr/users/:id/status', ensureHR, (req, res) => {
+    const { employment_status, target_department } = req.body;
+    const validStatuses = ['intern', 'on_hold', 'employee'];
+    if (!validStatuses.includes(employment_status)) {
+        return res.status(400).json({ error: 'Invalid status.' });
+    }
+
+    db.get("SELECT * FROM users WHERE id = ?", [req.params.id], (err, user) => {
+        if (err) { console.error('DB Error:', err); return res.status(500).json({ error: 'Internal server error' }); }
+        if (!user) return res.status(404).json({ error: 'User not found.' });
+
+        let updates = "employment_status = ?";
+        const params = [employment_status];
+
+        if (employment_status === 'on_hold') {
+            const now = new Date();
+            const trialEnd = new Date(now);
+            trialEnd.setMonth(trialEnd.getMonth() + 3);
+            updates += ", trial_start_date = ?, trial_end_date = ?";
+            params.push(now.toISOString().split('T')[0], trialEnd.toISOString().split('T')[0]);
+
+            if (target_department) {
+                updates += ", target_department = ?, department = ?";
+                params.push(target_department, target_department);
+            }
+        } else if (employment_status === 'employee') {
+            updates += ", trial_start_date = NULL, trial_end_date = NULL";
+        }
+
+        params.push(req.params.id);
+        db.run(`UPDATE users SET ${updates} WHERE id = ?`, params, function(err2) {
+            if (err2) { console.error('DB Error:', err2); return res.status(500).json({ error: 'Internal server error' }); }
+
+            // Create notifications based on status change
+            if (employment_status === 'on_hold' && target_department) {
+                // Notify Administrative Affairs
+                db.run(
+                    `INSERT INTO notifications (target_department, type, title, message, related_user_id)
+                     VALUES ('Administrative Affairs', 'admin_affairs_prep', 'New Staff Incoming', ?, ?)`,
+                    [`${user.name} is joining ${target_department}. Please prepare workspace (computer, desk, chair, keyboard).`, req.params.id]
+                );
+                // Notify target department head
+                db.run(
+                    `INSERT INTO notifications (target_department, target_role, type, title, message, related_user_id)
+                     VALUES (?, 'head', 'new_team_member', 'New Team Member', ?, ?)`,
+                    [target_department, `${user.name} has been assigned to your department as a trial member.`, req.params.id]
+                );
+            } else if (employment_status === 'employee') {
+                db.run(
+                    `INSERT INTO notifications (target_user_id, type, title, message, related_user_id)
+                     VALUES (?, 'status_change', 'Congratulations!', 'You are now an official employee of IT Park.', ?)`,
+                    [req.params.id, req.params.id]
+                );
+            }
+
+            res.json({ success: true, employment_status });
+        });
+    });
+});
+
+// --- Assign Intern to Team Member ---
+app.post('/hr/users/:id/assign', ensureHR, (req, res) => {
+    const { assigned_to, notes } = req.body;
+    if (!assigned_to) return res.status(400).json({ error: 'assigned_to is required.' });
+
+    db.get("SELECT * FROM users WHERE id = ?", [req.params.id], (err, intern) => {
+        if (err) { console.error('DB Error:', err); return res.status(500).json({ error: 'Internal server error' }); }
+        if (!intern) return res.status(404).json({ error: 'Intern not found.' });
+
+        db.run(
+            `INSERT INTO intern_assignments (intern_id, assigned_to, assigned_by, department, notes)
+             VALUES (?, ?, ?, ?, ?)`,
+            [req.params.id, assigned_to, req.user.id, intern.department, notes || null],
+            function(err2) {
+                if (err2) { console.error('DB Error:', err2); return res.status(500).json({ error: 'Internal server error' }); }
+
+                // Create task for the assigned team member
+                db.run(
+                    `INSERT INTO tasks (title, description, assigned_to, assigned_by, department, priority, status, deadline)
+                     VALUES (?, ?, ?, ?, ?, 'high', 'pending', ?)`,
+                    [
+                        `Mentor Intern: ${intern.name}`,
+                        `HR has assigned intern ${intern.name} (${intern.email}) to you for mentoring.${notes ? ' Notes: ' + notes : ''}`,
+                        assigned_to, req.user.id, intern.department,
+                        intern.trial_end_date || null
+                    ]
+                );
+
+                // Notify the assigned member
+                db.run(
+                    `INSERT INTO notifications (target_user_id, type, title, message, related_user_id)
+                     VALUES (?, 'intern_assigned', 'Intern Assigned to You', ?, ?)`,
+                    [assigned_to, `HR assigned intern ${intern.name} to you for mentoring.`, req.params.id]
+                );
+
+                res.json({ success: true, id: this.lastID });
+            }
+        );
+    });
+});
+
+// --- HR Notifications ---
+app.get('/hr/notifications', ensureAuth, (req, res) => {
+    db.all(
+        `SELECT * FROM notifications
+         WHERE target_user_id = ?
+            OR (target_department = ? AND (target_role IS NULL OR target_role = ?))
+            OR (target_department IS NULL AND target_user_id IS NULL AND target_role = ?)
+         ORDER BY created_at DESC LIMIT 50`,
+        [req.user.id, req.user.department, req.user.role, req.user.role],
+        (err, rows) => {
+            if (err) { console.error('DB Error:', err); return res.status(500).json({ error: 'Internal server error' }); }
+            res.json({ notifications: rows || [] });
+        }
+    );
+});
+
+app.put('/hr/notifications/:id/read', ensureAuth, (req, res) => {
+    db.run("UPDATE notifications SET is_read = 1 WHERE id = ?", [req.params.id], (err) => {
+        if (err) { console.error('DB Error:', err); return res.status(500).json({ error: 'Internal server error' }); }
+        res.json({ success: true });
+    });
+});
+
+app.get('/hr/notifications/unread-count', ensureAuth, (req, res) => {
+    db.get(
+        `SELECT COUNT(*) as count FROM notifications
+         WHERE is_read = 0 AND (
+            target_user_id = ?
+            OR (target_department = ? AND (target_role IS NULL OR target_role = ?))
+         )`,
+        [req.user.id, req.user.department, req.user.role],
+        (err, row) => {
+            if (err) { console.error('DB Error:', err); return res.status(500).json({ error: 'Internal server error' }); }
+            res.json({ count: row ? row.count : 0 });
+        }
+    );
+});
+
+// --- Administrative Affairs: Incoming staff preparations ---
+app.get('/hr/admin-affairs/preparations', ensureAdminAffairs, (req, res) => {
+    db.all(
+        `SELECT id, name, email, phone, target_department, trial_start_date, trial_end_date, employment_status
+         FROM users WHERE employment_status = 'on_hold' ORDER BY trial_start_date DESC`,
+        (err, rows) => {
+            if (err) { console.error('DB Error:', err); return res.status(500).json({ error: 'Internal server error' }); }
+            res.json({ preparations: rows || [] });
+        }
+    );
+});
+
+// --- Get department members (for intern assignment dropdown) ---
+app.get('/hr/department-members', ensureHR, (req, res) => {
+    const { department } = req.query;
+    if (!department) return res.status(400).json({ error: 'Department required.' });
+    db.all(
+        "SELECT id, name, email, role FROM users WHERE department = ? AND approval_status = 'approved' ORDER BY name",
+        [department],
+        (err, rows) => {
+            if (err) { console.error('DB Error:', err); return res.status(500).json({ error: 'Internal server error' }); }
+            res.json({ members: rows || [] });
+        }
+    );
+});
+
 // Admin Maker (protected — only existing admins can promote users)
 app.get('/make-me-admin', ensureAdmin, (req, res) => {
     const email = req.query.email;
@@ -1586,6 +1975,48 @@ app.get('/make-me-admin', ensureAdmin, (req, res) => {
         res.json({ success: true, message: `User ${email} is now an Admin.` });
     });
 });
+
+/* =========================
+   ⏰ TRIAL PERIOD CRON
+========================= */
+function checkTrialWarnings() {
+    const now = new Date();
+    const in14d = new Date(now.getTime() + 14 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+    const in5d = new Date(now.getTime() + 5 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+
+    // 14-day warning
+    db.all("SELECT * FROM users WHERE employment_status = 'on_hold' AND trial_end_date = ?", [in14d], (err, users) => {
+        if (err || !users) return;
+        users.forEach(u => {
+            db.get("SELECT id FROM notifications WHERE related_user_id = ? AND type = 'trial_warning_14d' AND DATE(created_at) = DATE('now')",
+                [u.id], (err2, existing) => {
+                    if (!existing) {
+                        db.run(`INSERT INTO notifications (target_department, type, title, message, related_user_id)
+                                VALUES ('HR', 'trial_warning_14d', 'Trial Period Warning', ?, ?)`,
+                            [`${u.name}'s trial period ends in 14 days (${u.trial_end_date}).`, u.id]);
+                    }
+                });
+        });
+    });
+
+    // 5-day warning
+    db.all("SELECT * FROM users WHERE employment_status = 'on_hold' AND trial_end_date = ?", [in5d], (err, users) => {
+        if (err || !users) return;
+        users.forEach(u => {
+            db.get("SELECT id FROM notifications WHERE related_user_id = ? AND type = 'trial_warning_5d' AND DATE(created_at) = DATE('now')",
+                [u.id], (err2, existing) => {
+                    if (!existing) {
+                        db.run(`INSERT INTO notifications (target_department, type, title, message, related_user_id)
+                                VALUES ('HR', 'trial_warning_5d', 'URGENT: Trial Period Ending Soon', ?, ?)`,
+                            [`${u.name}'s trial period ends in 5 days (${u.trial_end_date})!`, u.id]);
+                    }
+                });
+        });
+    });
+}
+// Run daily (every 24h) + once on startup
+setTimeout(checkTrialWarnings, 5000);
+setInterval(checkTrialWarnings, 24 * 60 * 60 * 1000);
 
 // Serves the main page
 app.get('/', (req, res) => {

@@ -254,6 +254,65 @@ function initializeTables() {
             created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
             FOREIGN KEY(added_by) REFERENCES users(id)
         )`);
+
+        // 17. USER DOCUMENTS TABLE (intern docs + certificates)
+        db.run(`CREATE TABLE IF NOT EXISTS user_documents (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id TEXT NOT NULL,
+            doc_type TEXT NOT NULL,
+            original_name TEXT NOT NULL,
+            file_path TEXT NOT NULL,
+            file_size INTEGER,
+            mime_type TEXT,
+            label TEXT,
+            verified_by TEXT,
+            verified_at DATETIME,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY(user_id) REFERENCES users(id),
+            FOREIGN KEY(verified_by) REFERENCES users(id)
+        )`);
+
+        // 18. NOTIFICATIONS TABLE (HR alerts, trial warnings, etc.)
+        db.run(`CREATE TABLE IF NOT EXISTS notifications (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            target_user_id TEXT,
+            target_department TEXT,
+            target_role TEXT,
+            type TEXT NOT NULL,
+            title TEXT NOT NULL,
+            message TEXT NOT NULL,
+            related_user_id TEXT,
+            is_read INTEGER DEFAULT 0,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY(target_user_id) REFERENCES users(id),
+            FOREIGN KEY(related_user_id) REFERENCES users(id)
+        )`);
+
+        // 19. INTERN ASSIGNMENTS TABLE (HR assigns intern to team member)
+        db.run(`CREATE TABLE IF NOT EXISTS intern_assignments (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            intern_id TEXT NOT NULL,
+            assigned_to TEXT NOT NULL,
+            assigned_by TEXT NOT NULL,
+            department TEXT NOT NULL,
+            notes TEXT,
+            status TEXT DEFAULT 'active',
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY(intern_id) REFERENCES users(id),
+            FOREIGN KEY(assigned_to) REFERENCES users(id),
+            FOREIGN KEY(assigned_by) REFERENCES users(id)
+        )`);
+
+        // Migrations: add HR columns to users table
+        db.run(`ALTER TABLE users ADD COLUMN employment_status TEXT DEFAULT 'employee'`, (err) => {
+            if (!err) {
+                db.run(`UPDATE users SET employment_status = 'employee' WHERE approval_status = 'approved' AND employment_status IS NULL`);
+            }
+        });
+        db.run(`ALTER TABLE users ADD COLUMN trial_start_date TEXT`, () => {});
+        db.run(`ALTER TABLE users ADD COLUMN trial_end_date TEXT`, () => {});
+        db.run(`ALTER TABLE users ADD COLUMN target_department TEXT`, () => {});
+        db.run(`ALTER TABLE users ADD COLUMN phone TEXT`, () => {});
     });
 }
 

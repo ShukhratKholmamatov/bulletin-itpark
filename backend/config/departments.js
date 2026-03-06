@@ -46,7 +46,7 @@ const DEPARTMENT_GROUPS = {
     },
     hr_admin: {
         name: 'HR & Administration',
-        departments: ['HR', 'International Relations'],
+        departments: ['HR', 'International Relations', 'Administrative Affairs'],
         color: '#e11d48',
         icon: 'fa-solid fa-people-roof'
     }
@@ -301,6 +301,13 @@ const DEPARTMENT_CONFIG = {
         widgets: ['news_feed', 'event_planner', 'ai_brief'],
         trackedItemTypes: ['event'],
         aiPromptContext: 'International relations, diplomatic partnerships, cross-border IT cooperation, global tech alliances at IT Park Uzbekistan'
+    },
+    'Administrative Affairs': {
+        group: 'hr_admin',
+        newsPresets: { keywords: ['office management', 'facility administration', 'workplace operations'], countries: ['uz'] },
+        widgets: ['announcements', 'news_feed', 'ai_brief'],
+        trackedItemTypes: ['event'],
+        aiPromptContext: 'Administrative affairs, office preparation, equipment provisioning, facility management for IT Park staff'
     }
 };
 

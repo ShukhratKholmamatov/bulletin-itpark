@@ -92,6 +92,16 @@ async function fetchCurrentUser() {
             const adminTabBtn = document.getElementById('tab-admin');
             if (adminTabBtn) adminTabBtn.style.display = (user.role === 'admin') ? 'flex' : 'none';
 
+            // Show HR tab for HR department or admin
+            const hrTabBtn = document.getElementById('tab-hr');
+            if (hrTabBtn) hrTabBtn.style.display = (user.department === 'HR' || user.role === 'admin') ? 'flex' : 'none';
+
+            // If intern with approved status, show document upload prompt
+            if (user.employment_status === 'intern' && user.approval_status === 'approved') {
+                showTab('workspace'); // Will render intern doc upload form
+                return;
+            }
+
             loadNews();
         } else {
             showLoginWall();
@@ -146,19 +156,27 @@ function showLoginWall() {
 function toggleAuthMode(mode) {
     const loginForm = document.getElementById('form-login');
     const regForm = document.getElementById('form-register');
+    const internForm = document.getElementById('form-intern');
     const btnLogin = document.getElementById('btn-show-login');
     const btnReg = document.getElementById('btn-show-register');
+    const btnIntern = document.getElementById('btn-show-intern');
+
+    loginForm.style.display = 'none';
+    regForm.style.display = 'none';
+    internForm.style.display = 'none';
+    btnLogin.classList.remove('active');
+    btnReg.classList.remove('active');
+    btnIntern.classList.remove('active');
 
     if (mode === 'login') {
         loginForm.style.display = 'block';
-        regForm.style.display = 'none';
         btnLogin.classList.add('active');
-        btnReg.classList.remove('active');
-    } else {
-        loginForm.style.display = 'none';
+    } else if (mode === 'register') {
         regForm.style.display = 'block';
-        btnLogin.classList.remove('active');
         btnReg.classList.add('active');
+    } else if (mode === 'intern') {
+        internForm.style.display = 'block';
+        btnIntern.classList.add('active');
     }
 }
 
@@ -203,6 +221,36 @@ async function handleRegister() {
         alert(data.error || 'Registration failed');
     }
 }
+async function handleInternApply() {
+    const name = document.getElementById('intern-name').value.trim();
+    const email = document.getElementById('intern-email').value.trim();
+    const phone = document.getElementById('intern-phone').value.trim();
+    const password = document.getElementById('intern-password').value;
+    const statusEl = document.getElementById('intern-apply-status');
+
+    if (!name || !email || !password) return alert('Please fill all required fields');
+
+    try {
+        const res = await fetch('/hr/intern-apply', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ name, email, phone, password })
+        });
+        const data = await res.json();
+        if (res.ok) {
+            statusEl.innerHTML = '<span style="color:#10b981;">Application submitted! HR will review it shortly.</span>';
+            document.getElementById('intern-name').value = '';
+            document.getElementById('intern-email').value = '';
+            document.getElementById('intern-phone').value = '';
+            document.getElementById('intern-password').value = '';
+        } else {
+            statusEl.innerHTML = `<span style="color:#ef4444;">${data.error || 'Failed to submit'}</span>`;
+        }
+    } catch (e) {
+        statusEl.innerHTML = '<span style="color:#ef4444;">Network error. Try again.</span>';
+    }
+}
+
 function loginWithGoogle() { window.location.href = '/auth/google'; }
 function logout() { window.location.href = '/auth/logout'; }
 
@@ -873,6 +921,14 @@ async function loadWorkspace() {
     const metricsEl = document.getElementById('workspace-metrics');
     const grid = document.getElementById('workspace-widgets');
     if (!header) return;
+
+    // If user is an approved intern, show document upload form instead
+    if (currentUser && currentUser.employment_status === 'intern' && currentUser.approval_status === 'approved') {
+        header.innerHTML = '';
+        metricsEl.innerHTML = '';
+        renderInternDocUpload(grid);
+        return;
+    }
 
     header.innerHTML = '';
     metricsEl.innerHTML = '';
@@ -2057,6 +2113,7 @@ function showTab(tab) {
   const nlaContainer = document.getElementById('nla-container');
   const adminContainer = document.getElementById('admin-container');
   const workspaceContainer = document.getElementById('workspace-container');
+  const hrContainer = document.getElementById('hr-container');
 
   const filters = document.getElementById('filters');
   const tabTitle = document.getElementById('tab-title');
@@ -2068,6 +2125,7 @@ function showTab(tab) {
   if(nlaContainer) nlaContainer.style.display = 'none';
   if(adminContainer) adminContainer.style.display = 'none';
   if(workspaceContainer) workspaceContainer.style.display = 'none';
+  if(hrContainer) hrContainer.style.display = 'none';
   if(filters) filters.style.display = 'flex';
   if(loadMore) loadMore.style.display = 'none';
 
@@ -2098,6 +2156,13 @@ function showTab(tab) {
     if(workspaceContainer) workspaceContainer.style.display = 'block';
     if(filters) filters.style.display = 'none';
     loadWorkspace();
+
+  } else if (tab === 'hr') {
+    if (!currentUser || (currentUser.department !== 'HR' && currentUser.role !== 'admin')) { showTab('all'); return; }
+    if(tabTitle) tabTitle.innerText = 'HR Management';
+    if(hrContainer) hrContainer.style.display = 'block';
+    if(filters) filters.style.display = 'none';
+    loadHRDashboard();
 
   } else if (tab === 'admin') {
     if (!currentUser || currentUser.role !== 'admin') { showTab('all'); return; }
@@ -2916,5 +2981,566 @@ async function loadChatUnreadCount() {
             badge.style.display = 'none';
         }
     } catch {}
+}
+
+/* =========================
+   👥 HR MODULE
+========================= */
+let _hrSearchTimer = null;
+const ALL_DEPARTMENTS = ['Product Export','Startup Ecosystem','Western Markets','Eastern Markets','GovTech','Venture Capital','Analytics','BPO Monitoring','Residents Relations','Residents Registration','Residents Monitoring','Softlanding','Legal Ecosystem','AI Infrastructure','AI Research','Inclusive Projects','Regional Development','Freelancers & Youth','Infrastructure','Infrastructure Dev','PPP Investors','IT Outsourcing','Global Marketing','Multimedia','Public Relations','Marketing','Event Management','International Relations','HR','Administrative Affairs'];
+
+function showHRSubtab(tab) {
+    document.querySelectorAll('.hr-subnav-btn').forEach(b => b.classList.remove('active'));
+    const btn = document.getElementById(`hr-sub-${tab}`);
+    if (btn) btn.classList.add('active');
+    document.querySelectorAll('.hr-subtab').forEach(s => s.style.display = 'none');
+    const target = document.getElementById(`hr-${tab}`);
+    if (target) target.style.display = 'block';
+
+    if (tab === 'interns') loadHRInterns();
+    else if (tab === 'all-users') loadHRAllUsers();
+    else if (tab === 'on-hold') loadHRTrialPeriod();
+    else if (tab === 'hr-notifs') loadHRNotifications();
+}
+
+async function loadHRDashboard() {
+    try {
+        const res = await fetch('/hr/dashboard', { credentials: 'include' });
+        if (!res.ok) throw new Error('Failed');
+        const stats = await res.json();
+
+        const bar = document.getElementById('hr-stats-bar');
+        if (bar) {
+            bar.innerHTML = `
+                <div class="admin-stat-card"><div class="admin-stat-value">${stats.totalUsers}</div><div class="admin-stat-label">Total Users</div></div>
+                <div class="admin-stat-card"><div class="admin-stat-value">${stats.pendingInterns}</div><div class="admin-stat-label">Pending Interns</div></div>
+                <div class="admin-stat-card"><div class="admin-stat-value">${stats.interns}</div><div class="admin-stat-label">Interns</div></div>
+                <div class="admin-stat-card"><div class="admin-stat-value">${stats.onHold}</div><div class="admin-stat-label">On Hold</div></div>
+                <div class="admin-stat-card"><div class="admin-stat-value">${stats.employees}</div><div class="admin-stat-label">Employees</div></div>
+            `;
+            if (stats.trialWarnings && stats.trialWarnings.length > 0) {
+                bar.innerHTML += `<div class="admin-stat-card" style="background:#fef2f2; border-color:#fca5a5;"><div class="admin-stat-value" style="color:#ef4444;">${stats.trialWarnings.length}</div><div class="admin-stat-label" style="color:#ef4444;">Trial Warnings</div></div>`;
+            }
+        }
+
+        // Populate dept filter if empty
+        const deptFilter = document.getElementById('hr-dept-filter');
+        if (deptFilter && deptFilter.options.length <= 1) {
+            ALL_DEPARTMENTS.forEach(d => {
+                const opt = document.createElement('option');
+                opt.value = d; opt.textContent = d;
+                deptFilter.appendChild(opt);
+            });
+        }
+
+        showHRSubtab('interns');
+    } catch (e) {
+        console.error('HR Dashboard error:', e);
+    }
+}
+
+async function loadHRInterns() {
+    try {
+        const res = await fetch('/hr/users?status=intern', { credentials: 'include' });
+        const data = await res.json();
+        const users = data.users || [];
+
+        const pending = users.filter(u => u.approval_status === 'pending');
+        const approved = users.filter(u => u.approval_status === 'approved');
+
+        const pendingEl = document.getElementById('hr-pending-interns');
+        if (pendingEl) {
+            if (pending.length === 0) {
+                pendingEl.innerHTML = '<div style="color:var(--text-muted); padding:16px;">No pending applications.</div>';
+            } else {
+                pendingEl.innerHTML = pending.map(u => `
+                    <div class="hr-intern-card">
+                        <div class="hr-intern-info">
+                            <img src="${escapeHtml(u.photo_url)}" class="hr-intern-avatar">
+                            <div>
+                                <strong>${escapeHtml(u.name)}</strong>
+                                <div style="color:var(--text-muted); font-size:0.85rem;">${escapeHtml(u.email)}${u.phone ? ' | ' + escapeHtml(u.phone) : ''}</div>
+                                <div style="color:var(--text-muted); font-size:0.8rem;">Applied: ${new Date(u.created_at).toLocaleDateString()}</div>
+                            </div>
+                        </div>
+                        <div class="hr-intern-actions">
+                            <button onclick="approveIntern('${u.id}')" class="ws-btn-save" style="padding:6px 14px; font-size:0.85rem;">Approve</button>
+                            <button onclick="rejectUser('${u.id}')" class="ws-btn-cancel" style="padding:6px 14px; font-size:0.85rem;">Reject</button>
+                        </div>
+                    </div>
+                `).join('');
+            }
+        }
+
+        const approvedEl = document.getElementById('hr-approved-interns');
+        if (approvedEl) {
+            if (approved.length === 0) {
+                approvedEl.innerHTML = '<div style="color:var(--text-muted); padding:16px;">No approved interns awaiting documents.</div>';
+            } else {
+                approvedEl.innerHTML = approved.map(u => `
+                    <div class="hr-intern-card">
+                        <div class="hr-intern-info">
+                            <img src="${escapeHtml(u.photo_url)}" class="hr-intern-avatar">
+                            <div>
+                                <strong>${escapeHtml(u.name)}</strong>
+                                <div style="color:var(--text-muted); font-size:0.85rem;">${escapeHtml(u.email)}</div>
+                                <div style="font-size:0.8rem;">Docs: ${u.doc_count}/5 uploaded</div>
+                            </div>
+                        </div>
+                        <div class="hr-intern-actions">
+                            <button onclick="openHRDocModal('${u.id}', '${escapeHtml(u.name)}')" class="ws-btn-save" style="padding:6px 14px; font-size:0.85rem;">View Docs</button>
+                            <button onclick="openHRStatusModal('${u.id}', 'intern')" class="ws-btn-cancel" style="padding:6px 14px; font-size:0.85rem;">Change Status</button>
+                            <button onclick="openHRAssignModal('${u.id}', '${escapeHtml(u.name)}')" class="primary-btn" style="padding:6px 14px; font-size:0.85rem;">Assign</button>
+                        </div>
+                    </div>
+                `).join('');
+            }
+        }
+    } catch (e) {
+        console.error('Load HR interns error:', e);
+    }
+}
+
+function debounceHRUserSearch() {
+    clearTimeout(_hrSearchTimer);
+    _hrSearchTimer = setTimeout(loadHRAllUsers, 300);
+}
+
+async function loadHRAllUsers() {
+    const search = document.getElementById('hr-user-search')?.value || '';
+    const dept = document.getElementById('hr-dept-filter')?.value || '';
+    const status = document.getElementById('hr-status-filter')?.value || '';
+    const params = new URLSearchParams();
+    if (search) params.set('search', search);
+    if (dept) params.set('department', dept);
+    if (status) params.set('status', status);
+
+    try {
+        const res = await fetch(`/hr/users?${params}`, { credentials: 'include' });
+        const data = await res.json();
+        const users = data.users || [];
+
+        const list = document.getElementById('hr-users-list');
+        if (!list) return;
+
+        if (users.length === 0) {
+            list.innerHTML = '<div style="color:var(--text-muted); padding:16px;">No users found.</div>';
+            return;
+        }
+
+        list.innerHTML = `
+            <div class="admin-table-wrap">
+                <table class="admin-table">
+                    <thead><tr>
+                        <th>User</th><th>Department</th><th>Status</th><th>Docs</th><th>Certs</th><th>Actions</th>
+                    </tr></thead>
+                    <tbody>
+                        ${users.map(u => `<tr>
+                            <td><div style="display:flex; align-items:center; gap:8px;">
+                                <img src="${escapeHtml(u.photo_url)}" style="width:32px; height:32px; border-radius:50%;">
+                                <div><strong>${escapeHtml(u.name)}</strong><br><span style="color:var(--text-muted); font-size:0.8rem;">${escapeHtml(u.email)}</span></div>
+                            </div></td>
+                            <td>${escapeHtml(u.department)}</td>
+                            <td><span class="hr-status-badge hr-status-${u.employment_status}">${u.employment_status}</span></td>
+                            <td>${u.doc_count}</td>
+                            <td>${u.cert_count}</td>
+                            <td>
+                                <button onclick="openHRDocModal('${u.id}', '${escapeHtml(u.name)}')" title="View Documents" style="background:none; border:none; cursor:pointer; color:var(--primary); font-size:1rem;"><i class="fa-solid fa-file-lines"></i></button>
+                                <button onclick="openHRStatusModal('${u.id}', '${u.employment_status}')" title="Change Status" style="background:none; border:none; cursor:pointer; color:var(--primary); font-size:1rem;"><i class="fa-solid fa-arrow-right-arrow-left"></i></button>
+                            </td>
+                        </tr>`).join('')}
+                    </tbody>
+                </table>
+            </div>
+        `;
+    } catch (e) {
+        console.error('Load HR users error:', e);
+    }
+}
+
+async function loadHRTrialPeriod() {
+    try {
+        const res = await fetch('/hr/users?status=on_hold', { credentials: 'include' });
+        const data = await res.json();
+        const users = data.users || [];
+
+        // Trial warnings
+        const dashRes = await fetch('/hr/dashboard', { credentials: 'include' });
+        const dashData = await dashRes.json();
+        const warnings = dashData.trialWarnings || [];
+
+        const warningsEl = document.getElementById('hr-trial-warnings');
+        if (warningsEl) {
+            if (warnings.length === 0) {
+                warningsEl.innerHTML = '';
+            } else {
+                warningsEl.innerHTML = '<h3 style="margin-bottom:12px; color:#ef4444;">Trial Period Warnings</h3>' +
+                    warnings.map(w => `
+                        <div class="hr-warning-card ${w.days_left <= 5 ? 'hr-warning-urgent' : ''}">
+                            <div><strong>${escapeHtml(w.name)}</strong> — ${w.days_left} days left (ends ${w.trial_end_date})</div>
+                            <button onclick="openHRStatusModal('${w.id}', 'on_hold')" class="ws-btn-save" style="padding:4px 12px; font-size:0.85rem;">Change Status</button>
+                        </div>
+                    `).join('');
+            }
+        }
+
+        const listEl = document.getElementById('hr-on-hold-list');
+        if (listEl) {
+            if (users.length === 0) {
+                listEl.innerHTML = '<div style="color:var(--text-muted); padding:16px;">No users on trial period.</div>';
+            } else {
+                listEl.innerHTML = users.map(u => `
+                    <div class="hr-intern-card">
+                        <div class="hr-intern-info">
+                            <img src="${escapeHtml(u.photo_url)}" class="hr-intern-avatar">
+                            <div>
+                                <strong>${escapeHtml(u.name)}</strong>
+                                <div style="color:var(--text-muted); font-size:0.85rem;">${escapeHtml(u.email)}</div>
+                                <div style="font-size:0.85rem;">Dept: <strong>${escapeHtml(u.target_department || u.department)}</strong></div>
+                                <div style="font-size:0.8rem; color:var(--text-muted);">Trial: ${u.trial_start_date || '?'} — ${u.trial_end_date || '?'}</div>
+                            </div>
+                        </div>
+                        <div class="hr-intern-actions">
+                            <button onclick="openHRDocModal('${u.id}', '${escapeHtml(u.name)}')" class="ws-btn-save" style="padding:6px 14px; font-size:0.85rem;">Docs</button>
+                            <button onclick="openHRStatusModal('${u.id}', 'on_hold')" class="ws-btn-cancel" style="padding:6px 14px; font-size:0.85rem;">Change Status</button>
+                            <button onclick="openHRAssignModal('${u.id}', '${escapeHtml(u.name)}')" class="primary-btn" style="padding:6px 14px; font-size:0.85rem;">Assign</button>
+                        </div>
+                    </div>
+                `).join('');
+            }
+        }
+    } catch (e) {
+        console.error('Load HR trial period error:', e);
+    }
+}
+
+async function loadHRNotifications() {
+    try {
+        const res = await fetch('/hr/notifications', { credentials: 'include' });
+        const data = await res.json();
+        const notifs = data.notifications || [];
+
+        const list = document.getElementById('hr-notifications-list');
+        if (!list) return;
+
+        if (notifs.length === 0) {
+            list.innerHTML = '<div style="color:var(--text-muted); padding:16px;">No notifications.</div>';
+            return;
+        }
+
+        list.innerHTML = notifs.map(n => `
+            <div class="hr-notif-item ${n.is_read ? '' : 'hr-notif-unread'}" onclick="markHRNotifRead(${n.id}, this)">
+                <div class="hr-notif-icon">
+                    <i class="fa-solid ${getNotifIcon(n.type)}"></i>
+                </div>
+                <div class="hr-notif-content">
+                    <strong>${escapeHtml(n.title)}</strong>
+                    <div style="font-size:0.85rem; color:var(--text-muted);">${escapeHtml(n.message)}</div>
+                    <div style="font-size:0.75rem; color:var(--text-muted); margin-top:4px;">${new Date(n.created_at).toLocaleString()}</div>
+                </div>
+            </div>
+        `).join('');
+    } catch (e) {
+        console.error('Load HR notifications error:', e);
+    }
+}
+
+function getNotifIcon(type) {
+    const icons = {
+        intern_application: 'fa-user-plus',
+        intern_docs_uploaded: 'fa-file-check',
+        intern_approved: 'fa-check-circle',
+        intern_assigned: 'fa-user-tag',
+        trial_warning_14d: 'fa-clock',
+        trial_warning_5d: 'fa-exclamation-triangle',
+        admin_affairs_prep: 'fa-desktop',
+        new_team_member: 'fa-people-arrows',
+        status_change: 'fa-arrows-rotate'
+    };
+    return icons[type] || 'fa-bell';
+}
+
+async function markHRNotifRead(id, el) {
+    try {
+        await fetch(`/hr/notifications/${id}/read`, { method: 'PUT', credentials: 'include' });
+        if (el) el.classList.remove('hr-notif-unread');
+    } catch {}
+}
+
+async function approveIntern(userId) {
+    if (!confirm('Approve this intern application?')) return;
+    try {
+        const res = await fetch(`/hr/users/${userId}/approve-intern`, { method: 'PUT', credentials: 'include' });
+        if (!res.ok) throw new Error('Failed');
+        loadHRInterns();
+        loadHRDashboard();
+    } catch (e) {
+        alert('Failed to approve intern.');
+    }
+}
+
+// --- Document Modal ---
+async function openHRDocModal(userId, userName) {
+    document.getElementById('hr-doc-modal').style.display = 'flex';
+    document.getElementById('hr-doc-modal-title').textContent = `Documents — ${userName}`;
+    const body = document.getElementById('hr-doc-modal-body');
+    body.innerHTML = '<div style="text-align:center; padding:20px;"><i class="fa-solid fa-spinner fa-spin"></i> Loading...</div>';
+
+    try {
+        const res = await fetch(`/hr/users/${userId}/documents`, { credentials: 'include' });
+        const data = await res.json();
+        const docs = data.documents || [];
+
+        if (docs.length === 0) {
+            body.innerHTML = '<div style="padding:16px; color:var(--text-muted);">No documents uploaded yet.</div>';
+            return;
+        }
+
+        body.innerHTML = `
+            <div class="hr-doc-list">
+                ${docs.map(d => `
+                    <div class="hr-doc-item">
+                        <div class="hr-doc-icon">
+                            <i class="fa-solid ${d.mime_type && d.mime_type.includes('pdf') ? 'fa-file-pdf' : 'fa-file-image'}" style="font-size:1.5rem; color:var(--primary);"></i>
+                        </div>
+                        <div class="hr-doc-info">
+                            <strong>${escapeHtml(d.label || d.doc_type.replace(/_/g, ' '))}</strong>
+                            <div style="font-size:0.8rem; color:var(--text-muted);">${escapeHtml(d.original_name)} (${(d.file_size / 1024).toFixed(0)} KB)</div>
+                            <div style="font-size:0.75rem; color:var(--text-muted);">Uploaded: ${new Date(d.created_at).toLocaleDateString()}</div>
+                        </div>
+                        <div style="display:flex; gap:8px;">
+                            <a href="${d.file_path}" target="_blank" class="ws-btn-save" style="padding:4px 10px; font-size:0.8rem; text-decoration:none;">View</a>
+                        </div>
+                    </div>
+                `).join('')}
+            </div>
+        `;
+    } catch (e) {
+        body.innerHTML = '<div style="color:#ef4444; padding:16px;">Failed to load documents.</div>';
+    }
+}
+
+function closeHRDocModal() {
+    document.getElementById('hr-doc-modal').style.display = 'none';
+}
+
+// --- Status Change Modal ---
+function openHRStatusModal(userId, currentStatus) {
+    document.getElementById('hr-status-modal').style.display = 'flex';
+    document.getElementById('hr-status-user-id').value = userId;
+    document.getElementById('hr-new-status').value = currentStatus;
+
+    // Populate target dept dropdown
+    const deptSelect = document.getElementById('hr-target-dept');
+    if (deptSelect.options.length <= 0) {
+        ALL_DEPARTMENTS.forEach(d => {
+            const opt = document.createElement('option');
+            opt.value = d; opt.textContent = d;
+            deptSelect.appendChild(opt);
+        });
+    }
+    toggleTargetDeptField();
+}
+
+function closeHRStatusModal() {
+    document.getElementById('hr-status-modal').style.display = 'none';
+}
+
+function toggleTargetDeptField() {
+    const status = document.getElementById('hr-new-status').value;
+    document.getElementById('hr-target-dept-group').style.display = (status === 'on_hold') ? 'block' : 'none';
+}
+
+async function submitStatusChange(e) {
+    e.preventDefault();
+    const userId = document.getElementById('hr-status-user-id').value;
+    const employment_status = document.getElementById('hr-new-status').value;
+    const target_department = document.getElementById('hr-target-dept').value;
+
+    const body = { employment_status };
+    if (employment_status === 'on_hold' && target_department) body.target_department = target_department;
+
+    try {
+        const res = await fetch(`/hr/users/${userId}/status`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            credentials: 'include',
+            body: JSON.stringify(body)
+        });
+        if (!res.ok) { const d = await res.json(); throw new Error(d.error); }
+        closeHRStatusModal();
+        alert('Status updated successfully!');
+        loadHRDashboard();
+    } catch (e) {
+        alert('Failed: ' + e.message);
+    }
+}
+
+// --- Assign Intern Modal ---
+function openHRAssignModal(internId, internName) {
+    document.getElementById('hr-assign-modal').style.display = 'flex';
+    document.getElementById('hr-assign-intern-id').value = internId;
+
+    const deptSelect = document.getElementById('hr-assign-dept');
+    if (deptSelect.options.length <= 0) {
+        ALL_DEPARTMENTS.forEach(d => {
+            const opt = document.createElement('option');
+            opt.value = d; opt.textContent = d;
+            deptSelect.appendChild(opt);
+        });
+    }
+    loadDeptMembers();
+}
+
+function closeHRAssignModal() {
+    document.getElementById('hr-assign-modal').style.display = 'none';
+}
+
+async function loadDeptMembers() {
+    const dept = document.getElementById('hr-assign-dept').value;
+    const memberSelect = document.getElementById('hr-assign-member');
+    memberSelect.innerHTML = '<option value="">Loading...</option>';
+
+    try {
+        const res = await fetch(`/hr/department-members?department=${encodeURIComponent(dept)}`, { credentials: 'include' });
+        const data = await res.json();
+        const members = data.members || [];
+        memberSelect.innerHTML = '<option value="">Select member...</option>' +
+            members.map(m => `<option value="${m.id}">${escapeHtml(m.name)} (${m.role})</option>`).join('');
+    } catch {
+        memberSelect.innerHTML = '<option value="">Failed to load</option>';
+    }
+}
+
+async function submitInternAssignment(e) {
+    e.preventDefault();
+    const internId = document.getElementById('hr-assign-intern-id').value;
+    const assigned_to = document.getElementById('hr-assign-member').value;
+    const notes = document.getElementById('hr-assign-notes').value;
+
+    if (!assigned_to) return alert('Please select a team member.');
+
+    try {
+        const res = await fetch(`/hr/users/${internId}/assign`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            credentials: 'include',
+            body: JSON.stringify({ assigned_to, notes })
+        });
+        if (!res.ok) { const d = await res.json(); throw new Error(d.error); }
+        closeHRAssignModal();
+        alert('Intern assigned successfully!');
+    } catch (e) {
+        alert('Failed: ' + e.message);
+    }
+}
+
+// --- Intern Document Upload (shown in workspace for approved interns) ---
+async function renderInternDocUpload(container) {
+    const requiredDocs = [
+        { type: 'photo_3x4', label: 'Photo 3x4', accept: 'image/*', required: true },
+        { type: 'passport', label: 'Passport (PDF)', accept: '.pdf', required: true },
+        { type: 'inn', label: 'INN (PDF)', accept: '.pdf', required: true },
+        { type: 'diploma', label: 'University Diploma (PDF)', accept: '.pdf', required: true },
+        { type: 'resume', label: 'Resume / Obyektivka (PDF)', accept: '.pdf', required: true },
+        { type: 'ielts', label: 'IELTS Certificate (PDF)', accept: '.pdf', required: false }
+    ];
+
+    // Fetch current upload status
+    let uploaded = {};
+    try {
+        const res = await fetch('/hr/documents/my-status', { credentials: 'include' });
+        const data = await res.json();
+        uploaded = data.uploaded || {};
+    } catch {}
+
+    container.innerHTML = `
+        <div class="intern-doc-upload">
+            <div class="intern-doc-header">
+                <i class="fa-solid fa-file-arrow-up" style="font-size:2rem; color:var(--primary);"></i>
+                <h2>Upload Required Documents</h2>
+                <p style="color:var(--text-muted);">Please upload all mandatory documents to complete your onboarding.</p>
+            </div>
+            <div class="intern-doc-grid">
+                ${requiredDocs.map(d => `
+                    <div class="intern-doc-item ${uploaded[d.type] ? 'intern-doc-done' : ''}" id="intern-doc-${d.type}">
+                        <div class="intern-doc-status">
+                            ${uploaded[d.type]
+                                ? '<i class="fa-solid fa-circle-check" style="color:#10b981; font-size:1.5rem;"></i>'
+                                : '<i class="fa-regular fa-circle" style="color:#cbd5e1; font-size:1.5rem;"></i>'}
+                        </div>
+                        <div class="intern-doc-label">
+                            <strong>${d.label}</strong>
+                            ${d.required ? '<span style="color:#ef4444;"> *</span>' : '<span style="color:var(--text-muted);"> (optional)</span>'}
+                            ${uploaded[d.type] ? `<div style="font-size:0.75rem; color:#10b981;">Uploaded: ${uploaded[d.type].name}</div>` : ''}
+                        </div>
+                        <div>
+                            <label class="ws-btn-save" style="padding:6px 14px; font-size:0.85rem; cursor:pointer;">
+                                ${uploaded[d.type] ? 'Replace' : 'Upload'}
+                                <input type="file" accept="${d.accept}" style="display:none;" onchange="uploadInternDoc('${d.type}', this)">
+                            </label>
+                        </div>
+                    </div>
+                `).join('')}
+            </div>
+            <div style="margin-top:24px;">
+                <h3>Additional Certificates</h3>
+                <p style="color:var(--text-muted); font-size:0.9rem; margin-bottom:12px;">Upload any additional certificates you have.</p>
+                <div style="display:flex; gap:10px; align-items:center; flex-wrap:wrap;">
+                    <input type="text" id="cert-label" placeholder="Certificate name (e.g. IELTS 7.5)" style="padding:8px 12px; border:1px solid #e2e8f0; border-radius:8px; flex:1; min-width:200px;">
+                    <label class="primary-btn" style="padding:8px 16px; cursor:pointer;">
+                        <i class="fa-solid fa-plus"></i> Upload Certificate
+                        <input type="file" accept=".pdf,.jpg,.jpeg,.png" style="display:none;" onchange="uploadCertificate(this)">
+                    </label>
+                </div>
+            </div>
+        </div>
+    `;
+}
+
+async function uploadInternDoc(docType, input) {
+    if (!input.files[0]) return;
+    const formData = new FormData();
+    formData.append('document', input.files[0]);
+    formData.append('doc_type', docType);
+
+    try {
+        const res = await fetch('/hr/documents/upload', {
+            method: 'POST',
+            credentials: 'include',
+            body: formData
+        });
+        if (!res.ok) { const d = await res.json(); throw new Error(d.error); }
+        // Refresh the upload form
+        renderInternDocUpload(document.getElementById('workspace-widgets'));
+    } catch (e) {
+        alert('Upload failed: ' + e.message);
+    }
+}
+
+async function uploadCertificate(input) {
+    if (!input.files[0]) return;
+    const label = document.getElementById('cert-label')?.value || 'Certificate';
+    const formData = new FormData();
+    formData.append('document', input.files[0]);
+    formData.append('doc_type', 'certificate');
+    formData.append('label', label);
+
+    try {
+        const res = await fetch('/hr/documents/upload', {
+            method: 'POST',
+            credentials: 'include',
+            body: formData
+        });
+        if (!res.ok) { const d = await res.json(); throw new Error(d.error); }
+        alert('Certificate uploaded!');
+        if (document.getElementById('cert-label')) document.getElementById('cert-label').value = '';
+        // If on workspace, refresh
+        if (currentUser && currentUser.employment_status === 'intern') {
+            renderInternDocUpload(document.getElementById('workspace-widgets'));
+        }
+    } catch (e) {
+        alert('Upload failed: ' + e.message);
+    }
 }
 

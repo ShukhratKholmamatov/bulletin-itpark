@@ -29,6 +29,7 @@
                 <div class="auth-toggle">
                     <button id="btn-show-login" class="active" onclick="toggleAuthMode('login')">Sign In</button>
                     <button id="btn-show-register" onclick="toggleAuthMode('register')">Register</button>
+                    <button id="btn-show-intern" onclick="toggleAuthMode('intern')">Apply as Intern</button>
                 </div>
 
                 <div id="form-login">
@@ -94,6 +95,7 @@
                             <option value="Event Management">Event Management</option>
                             <option value="HR">Human Resources</option>
                             <option value="International Relations">International Relations</option>
+                            <option value="Administrative Affairs">Administrative Affairs</option>
                         </select>
                     </div>
                     <div class="input-group">
@@ -101,6 +103,27 @@
                     </div>
 
                     <button class="primary-btn" onclick="handleRegister()">Create Account</button>
+                </div>
+
+                <div id="form-intern" style="display:none;">
+                    <h1 style="font-size:1.5rem; margin-bottom:5px;">Intern Application</h1>
+                    <p class="subtitle" style="margin-bottom:20px;">Apply to join IT Park as an intern</p>
+
+                    <div class="input-group">
+                        <input type="text" id="intern-name" placeholder="Full Name">
+                    </div>
+                    <div class="input-group">
+                        <input type="email" id="intern-email" placeholder="Email Address">
+                    </div>
+                    <div class="input-group">
+                        <input type="tel" id="intern-phone" placeholder="Phone Number">
+                    </div>
+                    <div class="input-group">
+                        <input type="password" id="intern-password" placeholder="Create Password">
+                    </div>
+
+                    <button class="primary-btn" onclick="handleInternApply()">Submit Application</button>
+                    <div id="intern-apply-status" style="margin-top:12px; text-align:center; font-size:0.9rem;"></div>
                 </div>
 
             </div>
@@ -191,6 +214,9 @@
                     </button>
                     <button onclick="showTab('nla')" id="tab-nla">
                         <i class="fa-solid fa-gavel"></i> Legislation (NLA)
+                    </button>
+                    <button onclick="showTab('hr')" id="tab-hr" style="display:none;">
+                        <i class="fa-solid fa-people-roof"></i> HR Management
                     </button>
                     <button onclick="showTab('admin')" id="tab-admin" style="display:none;">
                         <i class="fa-solid fa-shield-halved"></i> Admin Panel
@@ -389,6 +415,7 @@
                                     <option value="Marketing">Marketing</option>
                                     <option value="Event Management">Event Management</option>
                                     <option value="HR">HR</option>
+                                    <option value="Administrative Affairs">Administrative Affairs</option>
                                 </select>
                                 <select id="admin-role-filter" onchange="loadAdminUsers()">
                                     <option value="">All Roles</option>
@@ -471,6 +498,7 @@
                                 <option value="Marketing">Marketing</option>
                                 <option value="Event Management">Event Management</option>
                                 <option value="HR">HR</option>
+                                <option value="Administrative Affairs">Administrative Affairs</option>
                             </select>
                             <button onclick="exportActivityCSV()" class="activity-export-btn" title="Export CSV">
                                 <i class="fa-solid fa-download"></i> Export
@@ -509,6 +537,140 @@
                             </div>
                             <div id="tg-groups-list"></div>
                         </div>
+                    </div>
+                </div>
+
+                <!-- HR Management -->
+                <div id="hr-container" class="tab-content" style="display:none;">
+                    <div class="hr-subnav">
+                        <button class="hr-subnav-btn active" onclick="showHRSubtab('interns')" id="hr-sub-interns">
+                            <i class="fa-solid fa-user-plus"></i> Intern Applications
+                        </button>
+                        <button class="hr-subnav-btn" onclick="showHRSubtab('all-users')" id="hr-sub-all-users">
+                            <i class="fa-solid fa-users"></i> All Users & Certificates
+                        </button>
+                        <button class="hr-subnav-btn" onclick="showHRSubtab('on-hold')" id="hr-sub-on-hold">
+                            <i class="fa-solid fa-clock"></i> Trial Period
+                        </button>
+                        <button class="hr-subnav-btn" onclick="showHRSubtab('hr-notifs')" id="hr-sub-hr-notifs">
+                            <i class="fa-solid fa-bell"></i> Notifications
+                            <span class="hr-notif-dot" id="hr-notif-dot" style="display:none;"></span>
+                        </button>
+                    </div>
+
+                    <div id="hr-stats-bar" class="admin-stats-bar"></div>
+
+                    <!-- Interns Sub-tab -->
+                    <div id="hr-interns" class="hr-subtab">
+                        <h3 style="margin-bottom:16px;">Pending Applications</h3>
+                        <div id="hr-pending-interns"></div>
+                        <h3 style="margin:24px 0 16px;">Approved Interns (Awaiting Documents)</h3>
+                        <div id="hr-approved-interns"></div>
+                    </div>
+
+                    <!-- All Users Sub-tab -->
+                    <div id="hr-all-users" class="hr-subtab" style="display:none;">
+                        <div class="admin-users-toolbar" style="margin-bottom:16px;">
+                            <div class="admin-search-box">
+                                <i class="fa-solid fa-magnifying-glass"></i>
+                                <input type="text" id="hr-user-search" placeholder="Search users..." oninput="debounceHRUserSearch()">
+                            </div>
+                            <div class="admin-filters">
+                                <select id="hr-dept-filter" onchange="loadHRAllUsers()">
+                                    <option value="">All Departments</option>
+                                </select>
+                                <select id="hr-status-filter" onchange="loadHRAllUsers()">
+                                    <option value="">All Statuses</option>
+                                    <option value="intern">Intern</option>
+                                    <option value="on_hold">On Hold</option>
+                                    <option value="employee">Employee</option>
+                                </select>
+                            </div>
+                        </div>
+                        <div id="hr-users-list"></div>
+                    </div>
+
+                    <!-- Trial Period Sub-tab -->
+                    <div id="hr-on-hold" class="hr-subtab" style="display:none;">
+                        <div id="hr-trial-warnings" style="margin-bottom:20px;"></div>
+                        <h3 style="margin-bottom:16px;">On Hold (Trial Period)</h3>
+                        <div id="hr-on-hold-list"></div>
+                    </div>
+
+                    <!-- Notifications Sub-tab -->
+                    <div id="hr-hr-notifs" class="hr-subtab" style="display:none;">
+                        <div id="hr-notifications-list"></div>
+                    </div>
+                </div>
+
+                <!-- HR Document Viewer Modal -->
+                <div id="hr-doc-modal" class="workspace-modal" style="display:none;">
+                    <div class="workspace-modal-content" style="max-width:700px;">
+                        <div class="workspace-modal-header">
+                            <h3 id="hr-doc-modal-title">Documents</h3>
+                            <button onclick="closeHRDocModal()" class="workspace-modal-close">&times;</button>
+                        </div>
+                        <div id="hr-doc-modal-body"></div>
+                    </div>
+                </div>
+
+                <!-- HR Status Change Modal -->
+                <div id="hr-status-modal" class="workspace-modal" style="display:none;">
+                    <div class="workspace-modal-content" style="max-width:500px;">
+                        <div class="workspace-modal-header">
+                            <h3>Change Employment Status</h3>
+                            <button onclick="closeHRStatusModal()" class="workspace-modal-close">&times;</button>
+                        </div>
+                        <form id="hr-status-form" onsubmit="submitStatusChange(event)">
+                            <input type="hidden" id="hr-status-user-id">
+                            <div class="ws-form-group">
+                                <label>New Status</label>
+                                <select id="hr-new-status" onchange="toggleTargetDeptField()">
+                                    <option value="intern">Intern</option>
+                                    <option value="on_hold">On Hold (Trial Period - 3 months)</option>
+                                    <option value="employee">Employee (Official)</option>
+                                </select>
+                            </div>
+                            <div class="ws-form-group" id="hr-target-dept-group" style="display:none;">
+                                <label>Target Department</label>
+                                <select id="hr-target-dept"></select>
+                            </div>
+                            <div class="ws-form-actions">
+                                <button type="button" onclick="closeHRStatusModal()" class="ws-btn-cancel">Cancel</button>
+                                <button type="submit" class="ws-btn-save">Confirm</button>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+
+                <!-- HR Assign Intern Modal -->
+                <div id="hr-assign-modal" class="workspace-modal" style="display:none;">
+                    <div class="workspace-modal-content" style="max-width:500px;">
+                        <div class="workspace-modal-header">
+                            <h3>Assign Intern to Team Member</h3>
+                            <button onclick="closeHRAssignModal()" class="workspace-modal-close">&times;</button>
+                        </div>
+                        <form id="hr-assign-form" onsubmit="submitInternAssignment(event)">
+                            <input type="hidden" id="hr-assign-intern-id">
+                            <div class="ws-form-group">
+                                <label>Department</label>
+                                <select id="hr-assign-dept" onchange="loadDeptMembers()"></select>
+                            </div>
+                            <div class="ws-form-group">
+                                <label>Assign To</label>
+                                <select id="hr-assign-member">
+                                    <option value="">Select department first...</option>
+                                </select>
+                            </div>
+                            <div class="ws-form-group">
+                                <label>Notes (optional)</label>
+                                <textarea id="hr-assign-notes" rows="2" placeholder="Instructions for the mentor..."></textarea>
+                            </div>
+                            <div class="ws-form-actions">
+                                <button type="button" onclick="closeHRAssignModal()" class="ws-btn-cancel">Cancel</button>
+                                <button type="submit" class="ws-btn-save">Assign</button>
+                            </div>
+                        </form>
                     </div>
                 </div>
 
@@ -612,6 +774,7 @@
                         <option value="Marketing">Marketing</option>
                         <option value="Event Management">Event Management</option>
                         <option value="HR">Human Resources</option>
+                        <option value="Administrative Affairs">Administrative Affairs</option>
                     </select>
                     <button onclick="saveProfile()" class="settings-save-btn">
                         <i class="fa-solid fa-floppy-disk"></i> Save Profile

@@ -21,7 +21,7 @@ module.exports = function(passport) {
     const photo_url = profile.photos[0].value;
 
     // First check if a user with this email already exists (e.g., registered manually)
-    db.get("SELECT id, name, email, department, role, photo_url, google_id, approval_status FROM users WHERE email = ?", [email], (err, existing) => {
+    db.get("SELECT id, name, email, department, role, photo_url, google_id, approval_status, employment_status FROM users WHERE email = ?", [email], (err, existing) => {
       if (err) return done(err);
 
       if (existing) {
@@ -54,7 +54,7 @@ module.exports = function(passport) {
   // 2. LOCAL STRATEGY (Manual Login)
   // =====================================
   passport.use(new LocalStrategy({ usernameField: 'email' }, (email, password, done) => {
-    db.get("SELECT id, name, email, password, department, role, photo_url, google_id, approval_status FROM users WHERE email = ?", [email], (err, user) => {
+    db.get("SELECT id, name, email, password, department, role, photo_url, google_id, approval_status, employment_status FROM users WHERE email = ?", [email], (err, user) => {
       if (err) return done(err);
       if (!user) return done(null, false, { message: 'Email not registered' });
 
@@ -80,7 +80,7 @@ module.exports = function(passport) {
   passport.serializeUser((user, done) => done(null, user.id));
 
   passport.deserializeUser((id, done) => {
-    db.get("SELECT id, name, email, department, role, photo_url, google_id, approval_status FROM users WHERE id = ?", [id], (err, row) => {
+    db.get("SELECT id, name, email, department, role, photo_url, google_id, approval_status, employment_status, trial_start_date, trial_end_date, target_department, phone FROM users WHERE id = ?", [id], (err, row) => {
       done(err, row);
     });
   });
