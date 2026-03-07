@@ -2379,3 +2379,47 @@ nav button.active { background: var(--primary); color: white; }
 }
 .task-doc-link:hover { opacity: 0.85; }
 .task-card-desc { white-space: pre-wrap; }
+
+/* ==========================================
+   PERSONAL INFO TAB
+   ========================================== */
+.personal-info-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 20px;
+    max-width: 900px;
+}
+.personal-card {
+    background: var(--bg-primary, #fff);
+    border: 1px solid var(--border-color, #e2e8f0);
+    border-radius: 12px;
+    padding: 24px;
+}
+.personal-card h3 {
+    margin: 0 0 16px 0;
+    font-size: 1.05rem;
+    color: var(--text-primary);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+.personal-cert-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 12px 14px;
+    border: 1px solid var(--border-color, #e2e8f0);
+    border-radius: 8px;
+    margin-bottom: 8px;
+    background: var(--bg-secondary, #f8fafc);
+}
+.personal-cert-info {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+@media (max-width: 768px) {
+    .personal-info-grid {
+        grid-template-columns: 1fr;
+    }
+}

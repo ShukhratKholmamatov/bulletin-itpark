@@ -305,8 +305,144 @@ function setFontSize(size) {
     localStorage.setItem('bulletin-font-size', size);
 
     document.querySelectorAll('.settings-toggle-group button').forEach(b => b.classList.remove('active'));
-    const btn = document.getElementById(`font-btn-${size}`);
+    const btn = document.getElementById(`font-btn-${size}`) || document.getElementById(`pfont-btn-${size}`);
     if (btn) btn.classList.add('active');
+    // Also update personal tab font buttons
+    document.querySelectorAll('#personal-container .settings-toggle-group button').forEach(b => b.classList.remove('active'));
+    const pbtn = document.getElementById(`pfont-btn-${size}`);
+    if (pbtn) pbtn.classList.add('active');
+}
+
+// ==========================================
+// PERSONAL INFO TAB
+// ==========================================
+function loadPersonalInfo() {
+    if (!currentUser) return;
+    const nameEl = document.getElementById('personal-name');
+    const deptEl = document.getElementById('personal-dept');
+    const emailEl = document.getElementById('personal-email');
+    const avatarEl = document.getElementById('personal-avatar-preview');
+    const darkToggle = document.getElementById('personal-dark-toggle');
+
+    if (nameEl) nameEl.value = currentUser.name || '';
+    if (deptEl) deptEl.value = currentUser.department || 'General';
+    if (emailEl) emailEl.value = currentUser.email || '';
+    if (avatarEl) avatarEl.src = currentUser.photo_url || `https://ui-avatars.com/api/?name=${currentUser.name}&background=7dba28&color=fff`;
+    if (darkToggle) darkToggle.checked = document.documentElement.getAttribute('data-theme') === 'dark';
+
+    const currentSize = localStorage.getItem('bulletin-font-size') || 'medium';
+    document.querySelectorAll('#personal-container .settings-toggle-group button').forEach(b => b.classList.remove('active'));
+    const activeBtn = document.getElementById(`pfont-btn-${currentSize}`);
+    if (activeBtn) activeBtn.classList.add('active');
+
+    loadPersonalCerts();
+}
+
+async function savePersonalProfile() {
+    const name = document.getElementById('personal-name').value.trim();
+    const department = document.getElementById('personal-dept').value;
+    const statusEl = document.getElementById('personal-profile-status');
+
+    if (!name) {
+        if (statusEl) { statusEl.style.color = 'var(--accent-red)'; statusEl.textContent = 'Name is required'; }
+        return;
+    }
+
+    try {
+        const res = await fetch('/auth/profile', {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            credentials: 'include',
+            body: JSON.stringify({ name, department })
+        });
+        const data = await res.json();
+        if (res.ok) {
+            currentUser.name = data.name;
+            currentUser.department = data.department;
+            if (document.getElementById('user-name')) document.getElementById('user-name').innerText = data.name;
+            if (document.getElementById('user-dept')) document.getElementById('user-dept').innerText = data.department;
+            if (currentUser.photo_url && currentUser.photo_url.includes('ui-avatars.com')) {
+                const newUrl = `https://ui-avatars.com/api/?name=${data.name}&background=7dba28&color=fff`;
+                currentUser.photo_url = newUrl;
+                const ha = document.getElementById('user-avatar');
+                if (ha) ha.src = newUrl;
+                const pa = document.getElementById('personal-avatar-preview');
+                if (pa) pa.src = newUrl;
+            }
+            if (statusEl) { statusEl.style.color = 'var(--accent-green)'; statusEl.textContent = 'Profile saved!'; }
+            setTimeout(() => { if (statusEl) statusEl.textContent = ''; }, 2000);
+        } else {
+            if (statusEl) { statusEl.style.color = 'var(--accent-red)'; statusEl.textContent = data.error || 'Save failed'; }
+        }
+    } catch (e) {
+        if (statusEl) { statusEl.style.color = 'var(--accent-red)'; statusEl.textContent = 'Network error'; }
+    }
+}
+
+async function loadPersonalCerts() {
+    const listEl = document.getElementById('personal-cert-list');
+    if (!listEl) return;
+    try {
+        const res = await fetch(`/hr/users/${currentUser.id}/documents`, { credentials: 'include' });
+        if (!res.ok) {
+            listEl.innerHTML = '<div style="color:var(--text-muted); padding:12px;">No certificates yet.</div>';
+            return;
+        }
+        const data = await res.json();
+        const certs = (data.documents || []).filter(d => d.doc_type === 'certificate');
+        if (certs.length === 0) {
+            listEl.innerHTML = '<div style="color:var(--text-muted); padding:12px;">No certificates uploaded yet. Upload your first certificate above.</div>';
+            return;
+        }
+        listEl.innerHTML = certs.map(c => `
+            <div class="personal-cert-item">
+                <div class="personal-cert-info">
+                    <i class="fa-solid fa-file-certificate" style="color:#8b5cf6;"></i>
+                    <div>
+                        <strong>${escapeHtml(c.label || c.original_name)}</strong>
+                        <div style="font-size:0.8rem; color:var(--text-muted);">${escapeHtml(c.original_name)} - ${(c.file_size / 1024).toFixed(0)} KB</div>
+                    </div>
+                </div>
+                <div style="display:flex; gap:8px;">
+                    <a href="${c.file_path}" target="_blank" class="task-doc-link" style="font-size:0.8rem;"><i class="fa-solid fa-eye"></i> View</a>
+                    <button onclick="deletePersonalCert(${c.id})" style="background:none; border:none; color:#ef4444; cursor:pointer; font-size:0.85rem;"><i class="fa-solid fa-trash"></i></button>
+                </div>
+            </div>
+        `).join('');
+    } catch (e) {
+        listEl.innerHTML = '<div style="color:var(--text-muted); padding:12px;">Could not load certificates.</div>';
+    }
+}
+
+async function uploadPersonalCert(input) {
+    if (!input.files[0]) return;
+    const label = document.getElementById('personal-cert-label')?.value?.trim();
+    if (!label) { alert('Please enter a certificate name first.'); input.value = ''; return; }
+    const formData = new FormData();
+    formData.append('document', input.files[0]);
+    formData.append('doc_type', 'certificate');
+    formData.append('label', label);
+
+    try {
+        const res = await fetch('/hr/documents/upload', { method: 'POST', credentials: 'include', body: formData });
+        if (!res.ok) { const d = await res.json(); throw new Error(d.error); }
+        document.getElementById('personal-cert-label').value = '';
+        input.value = '';
+        loadPersonalCerts();
+    } catch (e) {
+        alert('Upload failed: ' + e.message);
+    }
+}
+
+async function deletePersonalCert(docId) {
+    if (!confirm('Delete this certificate?')) return;
+    try {
+        const res = await fetch(`/hr/documents/${docId}`, { method: 'DELETE', credentials: 'include' });
+        if (!res.ok) { const d = await res.json(); throw new Error(d.error); }
+        loadPersonalCerts();
+    } catch (e) {
+        alert('Delete failed: ' + e.message);
+    }
 }
 
 async function saveProfile() {
@@ -2127,6 +2263,7 @@ function showTab(tab) {
   const adminContainer = document.getElementById('admin-container');
   const workspaceContainer = document.getElementById('workspace-container');
   const hrContainer = document.getElementById('hr-container');
+  const personalContainer = document.getElementById('personal-container');
 
   const filters = document.getElementById('filters');
   const tabTitle = document.getElementById('tab-title');
@@ -2139,6 +2276,7 @@ function showTab(tab) {
   if(adminContainer) adminContainer.style.display = 'none';
   if(workspaceContainer) workspaceContainer.style.display = 'none';
   if(hrContainer) hrContainer.style.display = 'none';
+  if(personalContainer) personalContainer.style.display = 'none';
   if(filters) filters.style.display = 'flex';
   if(loadMore) loadMore.style.display = 'none';
 
@@ -2169,6 +2307,12 @@ function showTab(tab) {
     if(workspaceContainer) workspaceContainer.style.display = 'block';
     if(filters) filters.style.display = 'none';
     loadWorkspace();
+
+  } else if (tab === 'personal') {
+    if(tabTitle) tabTitle.innerText = 'Personal Information';
+    if(personalContainer) personalContainer.style.display = 'block';
+    if(filters) filters.style.display = 'none';
+    loadPersonalInfo();
 
   } else if (tab === 'hr') {
     if (!currentUser || (currentUser.department !== 'HR' && currentUser.role !== 'admin')) { showTab('all'); return; }
