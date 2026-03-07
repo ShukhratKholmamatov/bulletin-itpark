@@ -203,7 +203,7 @@ function escapeHtml(str) {
 }
 
 function ensureAuth(req, res, next) {
-    if (!req.isAuthenticated()) return res.status(401).json({ error: 'Unauthorized' });
+    if (!req.isAuthenticated() || !req.user) return res.status(401).json({ error: 'Unauthorized' });
     if (req.user.approval_status !== 'approved') return res.status(403).json({ error: 'Account pending approval' });
     return next();
 }

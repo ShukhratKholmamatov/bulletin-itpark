@@ -81,7 +81,9 @@ module.exports = function(passport) {
 
   passport.deserializeUser((id, done) => {
     db.get("SELECT id, name, email, department, role, photo_url, google_id, approval_status, employment_status, trial_start_date, trial_end_date, target_department, phone FROM users WHERE id = ?", [id], (err, row) => {
-      done(err, row);
+      if (err) return done(err);
+      if (!row) return done(null, false); // User was deleted — invalidate session
+      done(null, row);
     });
   });
 };
