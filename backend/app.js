@@ -27,6 +27,7 @@ const fs = require('fs');
 const { Jimp } = require('jimp'); // Image compression (pure JS, no native deps)
 const helmet = require('helmet');
 const rateLimit = require('express-rate-limit');
+const mailer = require('./config/mailer');
 
 // --- Security: Validate session secret ---
 if (!process.env.SESSION_SECRET || process.env.SESSION_SECRET.length < 16) {
@@ -309,6 +310,11 @@ app.post('/auth/register', authLimiter, async (req, res) => {
         db.run(sql, [newId, name, email, hash, department, photoUrl], function(err) {
             if (err) { console.error('DB Error:', err); return res.status(500).json({ error: 'Internal server error' }); }
             const newUser = { id: newId, name, email, department, photo_url: photoUrl, approval_status: 'pending' };
+            // Email: welcome to user + notify admins
+            mailer.sendMail(email, 'Welcome to IT Park Bulletin', mailer.welcomeEmail(name));
+            db.all("SELECT email FROM users WHERE role = 'admin' AND approval_status = 'approved'", [], (e, admins) => {
+                if (admins && admins.length) mailer.sendMailToMany(admins.map(a => a.email), 'New User Registration', mailer.newUserAdminEmail(name, email, department));
+            });
             req.login(newUser, (err) => {
                 if (err) { console.error('DB Error:', err); return res.status(500).json({ error: 'Internal server error' }); }
                 res.json(newUser);
@@ -814,6 +820,10 @@ app.post('/announcements', ensureAuth, ensureHR, (req, res) => {
             [title, content, imageUrl, req.user.id, 'HR'],
             function(err) {
                 if (err) { console.error('DB Error:', err); return res.status(500).json({ error: 'Internal server error' }); }
+                // Email: notify all approved users about announcement
+                db.all("SELECT email FROM users WHERE approval_status = 'approved'", [], (e, users) => {
+                    if (users && users.length) mailer.sendMailToMany(users.map(u => u.email), `Announcement: ${title}`, mailer.announcementEmail(title, content, req.user.name));
+                });
                 res.json({ success: true, id: this.lastID });
             });
     });
@@ -1442,6 +1452,10 @@ app.put('/admin/users/:id/approve', ensureAdmin, (req, res) => {
     db.run("UPDATE users SET approval_status = 'approved' WHERE id = ?", [req.params.id], function(err) {
         if (err) { console.error('DB Error:', err); return res.status(500).json({ error: 'Internal server error' }); }
         if (this.changes === 0) return res.status(404).json({ error: 'User not found.' });
+        // Email: notify user they're approved
+        db.get("SELECT name, email FROM users WHERE id = ?", [req.params.id], (e, user) => {
+            if (user) mailer.sendMail(user.email, 'Account Approved — IT Park Bulletin', mailer.approvalEmail(user.name, true));
+        });
         res.json({ success: true, id: req.params.id, approval_status: 'approved' });
     });
 });
@@ -1451,6 +1465,10 @@ app.put('/admin/users/:id/reject', ensureAdmin, (req, res) => {
     db.run("UPDATE users SET approval_status = 'rejected' WHERE id = ?", [req.params.id], function(err) {
         if (err) { console.error('DB Error:', err); return res.status(500).json({ error: 'Internal server error' }); }
         if (this.changes === 0) return res.status(404).json({ error: 'User not found.' });
+        // Email: notify user they're rejected
+        db.get("SELECT name, email FROM users WHERE id = ?", [req.params.id], (e, user) => {
+            if (user) mailer.sendMail(user.email, 'Account Update — IT Park Bulletin', mailer.approvalEmail(user.name, false));
+        });
         res.json({ success: true, id: req.params.id, approval_status: 'rejected' });
     });
 });
@@ -1680,6 +1698,10 @@ app.post('/hr/intern-apply', authLimiter, (req, res) => {
                  VALUES ('HR', 'intern_application', 'New Intern Application', ?, ?)`,
                 [`${name} (${email}) has applied as an intern.`, id]
             );
+            // Email: notify HR about new intern
+            db.all("SELECT email FROM users WHERE department = 'HR' AND approval_status = 'approved'", [], (e, hrs) => {
+                if (hrs && hrs.length) mailer.sendMailToMany(hrs.map(h => h.email), 'New Intern Application', mailer.internApplyHREmail(name, email, phone));
+            });
             res.json({ success: true, message: 'Application submitted. HR will review it shortly.' });
         }
     );
@@ -1784,6 +1806,10 @@ app.post('/hr/documents/upload', ensureAuth, documentUpload.single('document'), 
                                  VALUES ('HR', 'intern_docs_uploaded', 'Documents Uploaded', ?, ?)`,
                                 [`${req.user.name} has uploaded all required documents.`, req.user.id]
                             );
+                            // Email: notify HR that intern docs are ready
+                            db.all("SELECT email FROM users WHERE department = 'HR' AND approval_status = 'approved'", [], (e, hrs) => {
+                                if (hrs && hrs.length) mailer.sendMailToMany(hrs.map(h => h.email), 'Intern Documents Uploaded', mailer.docsUploadedHREmail(req.user.name));
+                            });
                         }
                     }
                 );
@@ -1843,6 +1869,10 @@ app.put('/hr/users/:id/approve-intern', ensureHR, (req, res) => {
                  VALUES (?, 'intern_approved', 'Application Approved', 'Your intern application has been approved! Please upload your required documents.', ?)`,
                 [req.params.id, req.params.id]
             );
+            // Email: notify intern they're approved
+            db.get("SELECT name, email FROM users WHERE id = ?", [req.params.id], (e, intern) => {
+                if (intern) mailer.sendMail(intern.email, 'Internship Approved!', mailer.internApprovedEmail(intern.name));
+            });
             res.json({ success: true });
         }
     );
@@ -1904,6 +1934,9 @@ app.put('/hr/users/:id/status', ensureHR, (req, res) => {
                 );
             }
 
+            // Email: notify user about status change
+            mailer.sendMail(user.email, employment_status === 'employee' ? 'Welcome Aboard!' : 'Trial Period Started', mailer.statusChangeEmail(user.name, employment_status, target_department));
+
             res.json({ success: true, employment_status });
         });
     });
@@ -1962,6 +1995,11 @@ app.post('/hr/users/:id/assign', ensureHR, (req, res) => {
                          VALUES (?, 'intern_assigned', 'Intern Assigned to You', ?, ?)`,
                         [assigned_to, notifMsg, req.params.id]
                     );
+
+                    // Email: notify mentor about assignment
+                    db.get("SELECT name, email FROM users WHERE id = ?", [assigned_to], (e, mentor) => {
+                        if (mentor) mailer.sendMail(mentor.email, 'New Intern Assignment', mailer.assignmentEmail(intern.name, mentor.name, intern.department, notes));
+                    });
 
                     res.json({ success: true, id: this.lastID, documents: (docs || []).map(d => ({ type: (d.label || d.doc_type).replace(/_/g, ' '), name: d.original_name, path: d.file_path })) });
                 }
@@ -2063,6 +2101,10 @@ function checkTrialWarnings() {
                         db.run(`INSERT INTO notifications (target_department, type, title, message, related_user_id)
                                 VALUES ('HR', 'trial_warning_14d', 'Trial Period Warning', ?, ?)`,
                             [`${u.name}'s trial period ends in 14 days (${u.trial_end_date}).`, u.id]);
+                        // Email: 14-day trial warning to HR
+                        db.all("SELECT email FROM users WHERE department = 'HR' AND approval_status = 'approved'", [], (e, hrs) => {
+                            if (hrs && hrs.length) mailer.sendMailToMany(hrs.map(h => h.email), 'Trial Period Warning: ' + u.name, mailer.trialWarningEmail(u.name, 14));
+                        });
                     }
                 });
         });
@@ -2078,6 +2120,10 @@ function checkTrialWarnings() {
                         db.run(`INSERT INTO notifications (target_department, type, title, message, related_user_id)
                                 VALUES ('HR', 'trial_warning_5d', 'URGENT: Trial Period Ending Soon', ?, ?)`,
                             [`${u.name}'s trial period ends in 5 days (${u.trial_end_date})!`, u.id]);
+                        // Email: 5-day urgent trial warning to HR
+                        db.all("SELECT email FROM users WHERE department = 'HR' AND approval_status = 'approved'", [], (e, hrs) => {
+                            if (hrs && hrs.length) mailer.sendMailToMany(hrs.map(h => h.email), 'URGENT: Trial Ending Soon — ' + u.name, mailer.trialWarningEmail(u.name, 5));
+                        });
                     }
                 });
         });
