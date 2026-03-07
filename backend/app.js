@@ -346,7 +346,9 @@ app.get('/auth/logout', (req, res) => {
 });
 
 app.get('/auth/current', (req, res) => {
-  if (req.user) return res.json(req.user);
+  if (req.isAuthenticated() && req.user) return res.json(req.user);
+  // Clear stale session if user was deleted
+  if (req.session) req.session = null;
   res.status(401).json({ user: null });
 });
 
@@ -2181,7 +2183,9 @@ app.use((err, req, res, next) => {
     if (err && err.message && err.message.includes('Only PDF')) {
         return res.status(400).json({ error: err.message });
     }
-    next(err);
+    // Catch-all error handler — prevent raw "Internal Server Error"
+    console.error('Unhandled error:', err);
+    res.status(500).json({ error: 'Internal server error' });
 });
 
 // ----------------------------------------------------
