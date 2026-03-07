@@ -24,6 +24,7 @@ const YAML = require('yamljs');
 const swaggerDocument = YAML.load(path.join(__dirname, 'swagger.yaml'));
 const multer = require('multer'); // File uploads
 const fs = require('fs');
+const sharp = require('sharp'); // Image compression
 const helmet = require('helmet');
 const rateLimit = require('express-rate-limit');
 
@@ -49,7 +50,7 @@ const avatarStorage = multer.diskStorage({
 });
 const avatarUpload = multer({
     storage: avatarStorage,
-    limits: { fileSize: 2 * 1024 * 1024 },
+    limits: { fileSize: 1 * 1024 * 1024 }, // 1MB for avatars (compressed after upload)
     fileFilter: (req, file, cb) => {
         const allowed = ['.jpg', '.jpeg', '.png', '.gif', '.webp'];
         const ext = path.extname(file.originalname).toLowerCase();
@@ -69,7 +70,7 @@ const announcementStorage = multer.diskStorage({
 });
 const announcementUpload = multer({
     storage: announcementStorage,
-    limits: { fileSize: 5 * 1024 * 1024 },
+    limits: { fileSize: 2 * 1024 * 1024 }, // 2MB for announcements (compressed after upload)
     fileFilter: (req, file, cb) => {
         const allowed = ['.jpg', '.jpeg', '.png', '.gif', '.webp'];
         const ext = path.extname(file.originalname).toLowerCase();
@@ -95,7 +96,7 @@ const documentStorage = multer.diskStorage({
 });
 const documentUpload = multer({
     storage: documentStorage,
-    limits: { fileSize: 10 * 1024 * 1024 }, // 10MB for PDFs
+    limits: { fileSize: 3 * 1024 * 1024 }, // 3MB for documents
     fileFilter: (req, file, cb) => {
         const allowed = ['.jpg', '.jpeg', '.png', '.pdf'];
         const ext = path.extname(file.originalname).toLowerCase();
@@ -104,6 +105,31 @@ const documentUpload = multer({
     }
 });
 
+
+// --- Image Compression Helper ---
+async function compressImage(filePath, options = {}) {
+    const ext = path.extname(filePath).toLowerCase();
+    if (!['.jpg', '.jpeg', '.png', '.webp'].includes(ext)) return; // Skip non-images (PDFs)
+    const { maxWidth = 1200, quality = 75 } = options;
+    try {
+        const tempPath = filePath + '.tmp';
+        await sharp(filePath)
+            .resize(maxWidth, null, { withoutEnlargement: true })
+            .jpeg({ quality, mozjpeg: true })
+            .toFile(tempPath);
+        const origSize = fs.statSync(filePath).size;
+        const newSize = fs.statSync(tempPath).size;
+        if (newSize < origSize) {
+            fs.unlinkSync(filePath);
+            fs.renameSync(tempPath, filePath);
+        } else {
+            fs.unlinkSync(tempPath); // Keep original if already smaller
+        }
+    } catch (e) {
+        console.error('Image compression error:', e.message);
+        // If compression fails, keep original file
+    }
+}
 
 /* =========================
    📱 TELEGRAM BOT SETUP
@@ -336,23 +362,26 @@ app.post('/auth/avatar', (req, res) => {
 
     avatarUpload.single('avatar')(req, res, (uploadErr) => {
         if (uploadErr) {
-            if (uploadErr.code === 'LIMIT_FILE_SIZE') return res.status(400).json({ error: 'Image must be under 2MB' });
+            if (uploadErr.code === 'LIMIT_FILE_SIZE') return res.status(400).json({ error: 'Image must be under 1MB' });
             return res.status(400).json({ error: uploadErr.message });
         }
         if (!req.file) return res.status(400).json({ error: 'No file uploaded' });
 
-        // Clean up previous avatar files with different extensions
-        const files = fs.readdirSync(avatarsDir);
-        files.forEach(f => {
-            if (f.startsWith(`avatar-${req.user.id}`) && f !== req.file.filename) {
-                try { fs.unlinkSync(path.join(avatarsDir, f)); } catch(e) {}
-            }
-        });
+        // Compress avatar image (resize to 400px, 70% quality)
+        compressImage(req.file.path, { maxWidth: 400, quality: 70 }).then(() => {
+            // Clean up previous avatar files with different extensions
+            const files = fs.readdirSync(avatarsDir);
+            files.forEach(f => {
+                if (f.startsWith(`avatar-${req.user.id}`) && f !== req.file.filename) {
+                    try { fs.unlinkSync(path.join(avatarsDir, f)); } catch(e) {}
+                }
+            });
 
-        const photoUrl = `/uploads/avatars/${req.file.filename}`;
-        db.run(`UPDATE users SET photo_url = ? WHERE id = ?`, [photoUrl, req.user.id], function(err) {
-            if (err) { console.error('DB Error:', err); return res.status(500).json({ error: 'Internal server error' }); }
-            res.json({ success: true, photo_url: photoUrl });
+            const photoUrl = `/uploads/avatars/${req.file.filename}`;
+            db.run(`UPDATE users SET photo_url = ? WHERE id = ?`, [photoUrl, req.user.id], function(err) {
+                if (err) { console.error('DB Error:', err); return res.status(500).json({ error: 'Internal server error' }); }
+                res.json({ success: true, photo_url: photoUrl });
+            });
         });
     });
 });
@@ -769,10 +798,13 @@ app.get('/announcements/unread-count', ensureAuth, (req, res) => {
 
 // Create announcement (HR or admin only)
 app.post('/announcements', ensureAuth, ensureHR, (req, res) => {
-    announcementUpload.single('image')(req, res, (uploadErr) => {
+    announcementUpload.single('image')(req, res, async (uploadErr) => {
         if (uploadErr) return res.status(400).json({ error: uploadErr.message });
         const { title, content } = req.body;
         if (!title || !content) return res.status(400).json({ error: 'Title and content are required' });
+
+        // Compress announcement image (resize to 800px, 75% quality)
+        if (req.file) await compressImage(req.file.path, { maxWidth: 800, quality: 75 });
 
         const imageUrl = req.file ? `/uploads/announcements/${req.file.filename}` : null;
         db.run(`INSERT INTO announcements (title, content, image_url, created_by, department) VALUES (?, ?, ?, ?, ?)`,
@@ -1719,16 +1751,21 @@ app.get('/hr/documents/my-status', ensureAuth, (req, res) => {
 });
 
 // --- Upload Document ---
-app.post('/hr/documents/upload', ensureAuth, documentUpload.single('document'), (req, res) => {
+app.post('/hr/documents/upload', ensureAuth, documentUpload.single('document'), async (req, res) => {
     if (!req.file) return res.status(400).json({ error: 'No file uploaded.' });
+
+    // Compress uploaded images (photo_3x4, passport scans, etc.) — PDFs are skipped automatically
+    await compressImage(req.file.path, { maxWidth: 1200, quality: 75 });
+
     const docType = req.body.doc_type || 'certificate';
     const label = req.body.label || null;
+    const actualSize = fs.statSync(req.file.path).size; // Get size after compression
     const filePath = `/uploads/documents/${req.user.id}/${req.file.filename}`;
 
     db.run(
         `INSERT INTO user_documents (user_id, doc_type, original_name, file_path, file_size, mime_type, label)
          VALUES (?, ?, ?, ?, ?, ?, ?)`,
-        [req.user.id, docType, req.file.originalname, filePath, req.file.size, req.file.mimetype, label],
+        [req.user.id, docType, req.file.originalname, filePath, actualSize, req.file.mimetype, label],
         function(err) {
             if (err) { console.error('DB Error:', err); return res.status(500).json({ error: 'Internal server error' }); }
 
@@ -2050,6 +2087,39 @@ setInterval(checkTrialWarnings, 24 * 60 * 60 * 1000);
 // Serves the main page
 app.get('/', (req, res) => {
     res.sendFile(path.join(__dirname, '../frontend/index.html'));
+});
+
+// --- Storage Monitoring (HR/Admin only) ---
+function getDirSize(dirPath) {
+    let totalSize = 0;
+    if (!fs.existsSync(dirPath)) return 0;
+    const items = fs.readdirSync(dirPath, { withFileTypes: true });
+    for (const item of items) {
+        const fullPath = path.join(dirPath, item.name);
+        if (item.isDirectory()) totalSize += getDirSize(fullPath);
+        else totalSize += fs.statSync(fullPath).size;
+    }
+    return totalSize;
+}
+
+app.get('/hr/storage', ensureHR, (req, res) => {
+    const avatarsSize = getDirSize(avatarsDir);
+    const announcementsSize = getDirSize(announcementsDir);
+    const documentsSize = getDirSize(documentsDir);
+    const totalSize = avatarsSize + announcementsSize + documentsSize;
+    const formatMB = (bytes) => (bytes / (1024 * 1024)).toFixed(2);
+
+    db.get("SELECT COUNT(*) as count FROM user_documents", [], (err, docRow) => {
+        res.json({
+            total_mb: formatMB(totalSize),
+            avatars_mb: formatMB(avatarsSize),
+            announcements_mb: formatMB(announcementsSize),
+            documents_mb: formatMB(documentsSize),
+            total_documents: docRow ? docRow.count : 0,
+            limit_mb: 2048, // 2GB
+            usage_percent: ((totalSize / (2048 * 1024 * 1024)) * 100).toFixed(1)
+        });
+    });
 });
 
 app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(swaggerDocument));

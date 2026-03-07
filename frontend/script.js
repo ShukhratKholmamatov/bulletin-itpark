@@ -3036,6 +3036,26 @@ async function loadHRDashboard() {
             }
         }
 
+        // Load storage info
+        try {
+            const storageRes = await fetch('/hr/storage', { credentials: 'include' });
+            if (storageRes.ok) {
+                const storage = await storageRes.json();
+                const pct = parseFloat(storage.usage_percent);
+                const color = pct > 80 ? '#ef4444' : pct > 50 ? '#f59e0b' : '#22c55e';
+                if (bar) {
+                    bar.innerHTML += `
+                        <div class="admin-stat-card" style="border-color:${color}20; min-width:180px;">
+                            <div class="admin-stat-value" style="color:${color}; font-size:1.1rem;">${storage.total_mb} / ${storage.limit_mb} MB</div>
+                            <div style="background:#e5e7eb; border-radius:4px; height:6px; margin:6px 0;">
+                                <div style="background:${color}; width:${Math.min(pct, 100)}%; height:100%; border-radius:4px;"></div>
+                            </div>
+                            <div class="admin-stat-label">Storage (${storage.usage_percent}%)</div>
+                        </div>`;
+                }
+            }
+        } catch(e) { /* ignore storage fetch errors */ }
+
         // Populate dept filter if empty
         const deptFilter = document.getElementById('hr-dept-filter');
         if (deptFilter && deptFilter.options.length <= 1) {
