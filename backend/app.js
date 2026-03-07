@@ -24,7 +24,7 @@ const YAML = require('yamljs');
 const swaggerDocument = YAML.load(path.join(__dirname, 'swagger.yaml'));
 const multer = require('multer'); // File uploads
 const fs = require('fs');
-const sharp = require('sharp'); // Image compression
+const { Jimp } = require('jimp'); // Image compression (pure JS, no native deps)
 const helmet = require('helmet');
 const rateLimit = require('express-rate-limit');
 
@@ -109,14 +109,16 @@ const documentUpload = multer({
 // --- Image Compression Helper ---
 async function compressImage(filePath, options = {}) {
     const ext = path.extname(filePath).toLowerCase();
-    if (!['.jpg', '.jpeg', '.png', '.webp'].includes(ext)) return; // Skip non-images (PDFs)
+    if (!['.jpg', '.jpeg', '.png'].includes(ext)) return; // Skip non-images (PDFs)
     const { maxWidth = 1200, quality = 75 } = options;
     try {
+        const image = await Jimp.read(filePath);
+        if (image.width > maxWidth) {
+            image.resize({ w: maxWidth });
+        }
+        image.quality = quality;
         const tempPath = filePath + '.tmp';
-        await sharp(filePath)
-            .resize(maxWidth, null, { withoutEnlargement: true })
-            .jpeg({ quality, mozjpeg: true })
-            .toFile(tempPath);
+        await image.write(tempPath);
         const origSize = fs.statSync(filePath).size;
         const newSize = fs.statSync(tempPath).size;
         if (newSize < origSize) {
@@ -128,6 +130,7 @@ async function compressImage(filePath, options = {}) {
     } catch (e) {
         console.error('Image compression error:', e.message);
         // If compression fails, keep original file
+        try { fs.unlinkSync(filePath + '.tmp'); } catch(_) {}
     }
 }
 
