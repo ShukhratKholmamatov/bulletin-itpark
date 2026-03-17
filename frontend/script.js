@@ -445,6 +445,174 @@ async function deletePersonalCert(docId) {
     }
 }
 
+// ==========================================
+// STATISTICS TAB
+// ==========================================
+let currentStatsTab = 'overview';
+
+function renderStatistics(subTab) {
+    currentStatsTab = subTab || 'overview';
+    // Update sub-nav active state
+    document.querySelectorAll('.stats-subnav-btn').forEach(b => b.classList.remove('active'));
+    const activeBtn = document.getElementById(`st-${currentStatsTab}`);
+    if (activeBtn) activeBtn.classList.add('active');
+
+    const area = document.getElementById('stats-content-area');
+    if (!area) return;
+
+    if (currentStatsTab === 'overview') {
+        renderStatsOverview(area);
+    } else if (currentStatsTab === 'startups') {
+        renderStatsStartups(area);
+    } else {
+        renderStatsIndex(area, currentStatsTab);
+    }
+}
+
+function showStatsTab(subTab) {
+    renderStatistics(subTab);
+}
+
+function renderStatsOverview(area) {
+    const p = UZ_PROFILE;
+    const indexCards = Object.entries(p.indexes).map(([key, v]) => {
+        const idx = STATS_INDEXES[key];
+        if (!idx) return '';
+        const rankText = v.rank ? `#${v.rank} / ${v.total}` : (v.note || 'N/A');
+        const trendIcon = v.trend === 'up' ? `<span style="color:#22c55e; font-size:0.8rem;"><i class="fa-solid fa-arrow-trend-up"></i> +${v.change || ''}</span>` :
+                          v.trend === 'down' ? `<span style="color:#ef4444; font-size:0.8rem;"><i class="fa-solid fa-arrow-trend-down"></i></span>` : '';
+        const pct = v.rank ? Math.round(((v.total - v.rank) / v.total) * 100) : null;
+        const barColor = pct > 60 ? '#22c55e' : pct > 35 ? '#f59e0b' : '#ef4444';
+        return `
+        <div class="stats-overview-card" onclick="showStatsTab('${key}')">
+            <div class="stats-ov-header">
+                <span class="stats-ov-publisher">${idx.shortName} ${idx.year}</span>
+                ${trendIcon}
+            </div>
+            <div class="stats-ov-rank">${rankText}</div>
+            <div class="stats-ov-name">${idx.name}</div>
+            ${pct !== null ? `
+            <div class="stats-ov-bar-bg">
+                <div class="stats-ov-bar" style="width:${pct}%; background:${barColor};"></div>
+            </div>
+            <div style="font-size:0.75rem; color:var(--text-muted); margin-top:4px;">Top ${100 - pct}% globally</div>
+            ` : `<div style="font-size:0.75rem; color:var(--text-muted); margin-top:8px;">${v.note || ''}</div>`}
+            <div class="stats-ov-source">${idx.publisher} · ${idx.year}</div>
+        </div>`;
+    }).join('');
+
+    const highlights = p.highlights.map(h => `<li><i class="fa-solid fa-check" style="color:#22c55e; margin-right:8px;"></i>${h}</li>`).join('');
+
+    area.innerHTML = `
+    <div class="stats-overview-header">
+        <img src="https://flagcdn.com/uz.svg" width="40" style="border-radius:4px; margin-right:12px;" alt="Uzbekistan">
+        <div>
+            <h2 style="margin:0 0 4px 0; font-size:1.3rem;">Uzbekistan — Digital & Innovation Profile</h2>
+            <div style="color:var(--text-muted); font-size:0.9rem;">Performance across major international IT & digital indexes</div>
+        </div>
+    </div>
+    <div class="stats-overview-grid">${indexCards}</div>
+    <div class="stats-highlights-box">
+        <h3 style="margin:0 0 16px 0; font-size:1rem;"><i class="fa-solid fa-star" style="color:#f59e0b; margin-right:8px;"></i>Key Highlights</h3>
+        <ul style="margin:0; padding:0; list-style:none;">${highlights}</ul>
+    </div>`;
+}
+
+function renderStatsIndex(area, indexId) {
+    const idx = STATS_INDEXES[indexId];
+    if (!idx) return;
+
+    const searchId = `stats-search-${indexId}`;
+    area.innerHTML = `
+    <div class="stats-index-header" style="border-left:4px solid ${idx.color};">
+        <div style="display:flex; align-items:flex-start; gap:16px; flex-wrap:wrap;">
+            <div style="flex:1; min-width:240px;">
+                <div style="font-size:0.8rem; color:var(--text-muted); text-transform:uppercase; letter-spacing:.05em; margin-bottom:4px;">${idx.publisher} · ${idx.year}</div>
+                <h2 style="margin:0 0 8px 0; font-size:1.2rem;">${idx.name}</h2>
+                <p style="margin:0; color:var(--text-muted); font-size:0.9rem;">${idx.description}</p>
+            </div>
+            <div style="display:flex; gap:16px; flex-wrap:wrap;">
+                <div class="stats-meta-pill"><i class="fa-solid fa-globe"></i> ${idx.totalEconomies} economies</div>
+                <a href="${idx.sourceUrl}" target="_blank" class="stats-meta-pill stats-source-link"><i class="fa-solid fa-arrow-up-right-from-square"></i> Official Source</a>
+            </div>
+        </div>
+    </div>
+    <div style="margin:16px 0 12px 0;">
+        <input type="text" id="${searchId}" class="stats-search-input" placeholder="Search country..." oninput="filterStatsTable('${indexId}', this.value)">
+    </div>
+    <div class="stats-table-wrap" id="stats-table-${indexId}">
+        ${buildStatsTable(idx)}
+    </div>`;
+}
+
+function buildStatsTable(idx) {
+    const rows = idx.data.map(c => {
+        const uzClass = c.code === 'uz' ? 'stats-row-uz' : '';
+        const changeHtml = c.change > 0 ? `<span class="stats-change up"><i class="fa-solid fa-caret-up"></i> ${c.change}</span>` :
+                           c.change < 0 ? `<span class="stats-change down"><i class="fa-solid fa-caret-down"></i> ${Math.abs(c.change)}</span>` :
+                           `<span class="stats-change neutral">—</span>`;
+        const scoreDisplay = c.score !== null && c.score !== undefined
+            ? (typeof c.score === 'number' && c.score < 2 ? c.score.toFixed(4) : c.score.toFixed(1))
+            : '—';
+        const tierBadge = c.tier ? `<span class="stats-tier-badge tier-${c.tier}">${c.tierName}</span>` : '';
+        return `<tr class="${uzClass}" data-name="${c.name.toLowerCase()}">
+            <td class="stats-td-rank"><strong>#${c.rank}</strong></td>
+            <td class="stats-td-flag"><img src="https://flagcdn.com/${c.code}.svg" width="28" style="border-radius:3px; vertical-align:middle;" onerror="this.style.display='none'" alt="${c.code}"></td>
+            <td class="stats-td-name">${c.name}${c.code === 'uz' ? ' <span class="stats-uz-badge">UZ</span>' : ''}</td>
+            <td class="stats-td-score">${scoreDisplay} ${tierBadge}</td>
+            <td class="stats-td-change">${changeHtml}</td>
+        </tr>`;
+    }).join('');
+    return `<table class="stats-table"><thead><tr>
+        <th>Rank</th><th></th><th>Country</th>
+        <th>${idx.scoreLabel}</th><th>Change</th>
+    </tr></thead><tbody id="stats-tbody-${idx.id}">${rows}</tbody></table>`;
+}
+
+function filterStatsTable(indexId, query) {
+    const tbody = document.getElementById(`stats-tbody-${indexId}`);
+    if (!tbody) return;
+    const q = query.toLowerCase().trim();
+    tbody.querySelectorAll('tr').forEach(row => {
+        const name = row.dataset.name || '';
+        row.style.display = (!q || name.includes(q)) ? '' : 'none';
+    });
+}
+
+function renderStatsStartups(area) {
+    const idx = STATS_INDEXES.startups;
+    const rows = idx.data.map(c => {
+        const uzClass = '';
+        return `<tr>
+            <td class="stats-td-rank"><strong>#${c.rank}</strong></td>
+            <td class="stats-td-flag"><img src="https://flagcdn.com/${c.code}.svg" width="28" style="border-radius:3px; vertical-align:middle;" onerror="this.style.display='none'" alt="${c.code}"></td>
+            <td class="stats-td-name"><strong>${c.name}</strong><br><small style="color:var(--text-muted);">${c.country}</small></td>
+            <td style="font-size:0.85rem; color:var(--text-muted);">${c.note}</td>
+        </tr>`;
+    }).join('');
+
+    area.innerHTML = `
+    <div class="stats-index-header" style="border-left:4px solid ${idx.color};">
+        <div style="display:flex; align-items:flex-start; gap:16px; flex-wrap:wrap;">
+            <div style="flex:1; min-width:240px;">
+                <div style="font-size:0.8rem; color:var(--text-muted); text-transform:uppercase; letter-spacing:.05em; margin-bottom:4px;">${idx.publisher} · ${idx.year}</div>
+                <h2 style="margin:0 0 8px 0; font-size:1.2rem;">${idx.name}</h2>
+                <p style="margin:0; color:var(--text-muted); font-size:0.9rem;">${idx.description}</p>
+            </div>
+            <div style="display:flex; gap:16px; flex-wrap:wrap;">
+                <div class="stats-meta-pill"><i class="fa-solid fa-city"></i> Top ${idx.totalEconomies} ecosystems</div>
+                <a href="${idx.sourceUrl}" target="_blank" class="stats-meta-pill stats-source-link"><i class="fa-solid fa-arrow-up-right-from-square"></i> Official Source</a>
+            </div>
+        </div>
+    </div>
+    <div class="stats-table-wrap" style="margin-top:16px;">
+        <table class="stats-table">
+            <thead><tr><th>Rank</th><th></th><th>Ecosystem</th><th>Notable For</th></tr></thead>
+            <tbody>${rows}</tbody>
+        </table>
+    </div>`;
+}
+
 async function saveProfile() {
     const name = document.getElementById('settings-name').value.trim();
     const department = document.getElementById('settings-dept').value;
@@ -2258,7 +2426,7 @@ function showTab(tab) {
 
   // Get Containers
   const newsContainer = document.getElementById('news-container');
-  const dashContainer = document.getElementById('dashboard-container');
+  const statsContainer = document.getElementById('statistics-container');
   const nlaContainer = document.getElementById('nla-container');
   const adminContainer = document.getElementById('admin-container');
   const workspaceContainer = document.getElementById('workspace-container');
@@ -2271,7 +2439,7 @@ function showTab(tab) {
 
   // Hide All
   if(newsContainer) newsContainer.style.display = 'none';
-  if(dashContainer) dashContainer.style.display = 'none';
+  if(statsContainer) statsContainer.style.display = 'none';
   if(nlaContainer) nlaContainer.style.display = 'none';
   if(adminContainer) adminContainer.style.display = 'none';
   if(workspaceContainer) workspaceContainer.style.display = 'none';
@@ -2282,13 +2450,11 @@ function showTab(tab) {
 
   // --- LOGIC PER TAB ---
 
-  if (tab === 'dashboard') {
-    if(tabTitle) tabTitle.innerText = 'Source of News';
-    if(dashContainer) dashContainer.style.display = 'block';
+  if (tab === 'statistics') {
+    if(tabTitle) tabTitle.innerText = 'Global IT & Digital Statistics';
+    if(statsContainer) statsContainer.style.display = 'block';
     if(filters) filters.style.display = 'none';
-    const topic = document.getElementById('topic-filter')?.value || '';
-    const query = new URLSearchParams({ limit: 50, topic });
-    fetch(`/news?${query.toString()}`).then(r => r.json()).then(data => renderDashboard(data));
+    renderStatistics('overview');
 
   } else if (tab === 'saved') {
     if(tabTitle) tabTitle.innerText = 'Saved Bookmarks';
@@ -2299,8 +2465,9 @@ function showTab(tab) {
   } else if (tab === 'nla') {
     if(tabTitle) tabTitle.innerText = 'Normative Legal Acts';
     if(nlaContainer) nlaContainer.style.display = 'block';
-    if(nlaState.step === 0) renderNLA(); 
-    else renderNLA(); 
+    if(filters) filters.style.display = 'none';
+    if(nlaState.step === 0) renderNLA();
+    else renderNLA();
 
   } else if (tab === 'workspace') {
     if(tabTitle) tabTitle.innerText = 'My Workspace';

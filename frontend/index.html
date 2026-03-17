@@ -10,6 +10,7 @@
     <link href="https://fonts.googleapis.com/css2?family=Merriweather:wght@300;400;700&display=swap" rel="stylesheet">
     
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="stats-data.js"></script>
     
     <link rel="stylesheet" href="style.css">
 </head>
@@ -206,8 +207,8 @@
                     <button onclick="showTab('workspace')" id="tab-workspace">
                         <i class="fa-solid fa-briefcase"></i> My Workspace
                     </button>
-                    <button onclick="showTab('dashboard')" id="tab-dashboard">
-                        <i class="fa-solid fa-chart-pie"></i> Analytics
+                    <button onclick="showTab('statistics')" id="tab-statistics">
+                        <i class="fa-solid fa-chart-bar"></i> Statistics
                     </button>
                     <button onclick="showTab('nla')" id="tab-nla">
                         <i class="fa-solid fa-gavel"></i> Legislation (NLA)
@@ -318,21 +319,33 @@
 
                 <main id="news-container" class="tab-content"></main>
 
-                <div id="dashboard-container" class="tab-content" style="display:none;">
-                    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(350px, 1fr)); gap: 20px;">
-                        <div style="background:white; padding:20px; border-radius:12px; border:1px solid #e2e8f0;">
-                            <h3 style="margin-top:0; color:#1e293b; font-size:1rem;">Topic Distribution</h3>
-                            <div style="height: 300px; position: relative;">
-                                <canvas id="topicChart"></canvas>
-                            </div>
-                        </div>
-                        <div style="background:white; padding:20px; border-radius:12px; border:1px solid #e2e8f0;">
-                            <h3 style="margin-top:0; color:#1e293b; font-size:1rem;">Top Sources</h3>
-                            <div style="height: 300px; position: relative;">
-                                <canvas id="sourceChart"></canvas>
-                            </div>
-                        </div>
+                <!-- Statistics Tab -->
+                <div id="statistics-container" class="tab-content" style="display:none;">
+                    <!-- Sub-navigation -->
+                    <div class="stats-subnav" id="stats-subnav">
+                        <button class="stats-subnav-btn active" onclick="showStatsTab('overview')" id="st-overview">
+                            <i class="fa-solid fa-flag"></i> Uzbekistan Overview
+                        </button>
+                        <button class="stats-subnav-btn" onclick="showStatsTab('gii')" id="st-gii">
+                            <i class="fa-solid fa-lightbulb"></i> Innovation (GII)
+                        </button>
+                        <button class="stats-subnav-btn" onclick="showStatsTab('imd')" id="st-imd">
+                            <i class="fa-solid fa-microchip"></i> Digital Competitiveness
+                        </button>
+                        <button class="stats-subnav-btn" onclick="showStatsTab('egdi')" id="st-egdi">
+                            <i class="fa-solid fa-landmark-dome"></i> E-Government
+                        </button>
+                        <button class="stats-subnav-btn" onclick="showStatsTab('nri')" id="st-nri">
+                            <i class="fa-solid fa-network-wired"></i> Network Readiness
+                        </button>
+                        <button class="stats-subnav-btn" onclick="showStatsTab('gci')" id="st-gci">
+                            <i class="fa-solid fa-shield-halved"></i> Cybersecurity
+                        </button>
+                        <button class="stats-subnav-btn" onclick="showStatsTab('startups')" id="st-startups">
+                            <i class="fa-solid fa-rocket"></i> Startup Ecosystems
+                        </button>
                     </div>
+                    <div id="stats-content-area"></div>
                 </div>
 
                 <div id="nla-container" class="tab-content" style="display:none;">
