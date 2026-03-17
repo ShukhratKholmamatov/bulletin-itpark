@@ -1027,12 +1027,6 @@ app.get('/news', async (req, res) => {
             uy:'Uruguay', ve:'Venezuela', ec:'Ecuador',
         };
 
-        // Countries that have a real English Google News edition (gl+ceid work correctly)
-        const englishEditions = new Set([
-            'us','gb','au','ca','in','ie','za','nz','sg','ph','ng','ke','gh','my','pk','bd',
-            'ae','il','qa','bh','kw','jo','om'
-        ]);
-
         const countryName = country ? (countryNames[country] || '') : '';
         if (countryName) queryParts.push(countryName);
 
@@ -1042,12 +1036,8 @@ app.get('/news', async (req, res) => {
 
         const searchQuery = queryParts.length ? queryParts.join(' ') : 'Technology';
 
-        // Use gl= only for countries with a real English Google News edition.
-        // For other countries, country name in the query is sufficient — invalid ceid returns no results.
-        const googleGeo = (country && englishEditions.has(country))
-            ? `&gl=${country.toUpperCase()}&ceid=${country.toUpperCase()}:en`
-            : '&gl=US&ceid=US:en';
-        const googleUrl = `https://news.google.com/rss/search?q=${encodeURIComponent(searchQuery)}&hl=en-US${googleGeo}`;
+        // Always use English US edition — country name in the query drives country-specific results
+        const googleUrl = `https://news.google.com/rss/search?q=${encodeURIComponent(searchQuery)}&hl=en-US&gl=US&ceid=US:en`;
 
         promises.push(parser.parseURL(googleUrl).then(feed => feed.items.map(item => {
             // Try to extract image from all possible RSS fields
