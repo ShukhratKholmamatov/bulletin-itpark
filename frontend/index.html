@@ -294,135 +294,16 @@
 
                         <div class="select-wrapper">
                             <select id="country-filter" onchange="if(currentTab === 'all') { resetNews(); loadNews(); }">
-                                <option value="">🌐 All Countries</option>
-                                <!-- Central Asia -->
-                                <optgroup label="── Central Asia ──">
-                                <option value="uz">🇺🇿 Uzbekistan</option>
-                                <option value="kz">🇰🇿 Kazakhstan</option>
-                                <option value="kg">🇰🇬 Kyrgyzstan</option>
-                                <option value="tj">🇹🇯 Tajikistan</option>
-                                <option value="tm">🇹🇲 Turkmenistan</option>
-                                </optgroup>
-                                <!-- Europe -->
-                                <optgroup label="── Europe ──">
+                                <option value="">Global (All Countries)</option>
+                                <option value="us">🇺🇸 USA (Silicon Valley)</option>
                                 <option value="gb">🇬🇧 United Kingdom</option>
-                                <option value="de">🇩🇪 Germany</option>
-                                <option value="fr">🇫🇷 France</option>
-                                <option value="nl">🇳🇱 Netherlands</option>
-                                <option value="se">🇸🇪 Sweden</option>
-                                <option value="fi">🇫🇮 Finland</option>
-                                <option value="dk">🇩🇰 Denmark</option>
-                                <option value="no">🇳🇴 Norway</option>
-                                <option value="ch">🇨🇭 Switzerland</option>
-                                <option value="at">🇦🇹 Austria</option>
-                                <option value="be">🇧🇪 Belgium</option>
-                                <option value="pl">🇵🇱 Poland</option>
-                                <option value="cz">🇨🇿 Czech Republic</option>
-                                <option value="es">🇪🇸 Spain</option>
-                                <option value="it">🇮🇹 Italy</option>
-                                <option value="pt">🇵🇹 Portugal</option>
-                                <option value="ie">🇮🇪 Ireland</option>
-                                <option value="ee">🇪🇪 Estonia</option>
-                                <option value="lt">🇱🇹 Lithuania</option>
-                                <option value="lv">🇱🇻 Latvia</option>
-                                <option value="hu">🇭🇺 Hungary</option>
-                                <option value="ro">🇷🇴 Romania</option>
-                                <option value="bg">🇧🇬 Bulgaria</option>
-                                <option value="hr">🇭🇷 Croatia</option>
-                                <option value="si">🇸🇮 Slovenia</option>
-                                <option value="sk">🇸🇰 Slovakia</option>
-                                <option value="gr">🇬🇷 Greece</option>
-                                <option value="lu">🇱🇺 Luxembourg</option>
-                                <option value="is">🇮🇸 Iceland</option>
-                                <option value="mt">🇲🇹 Malta</option>
-                                <option value="cy">🇨🇾 Cyprus</option>
-                                <option value="ru">🇷🇺 Russia</option>
-                                <option value="ua">🇺🇦 Ukraine</option>
-                                <option value="by">🇧🇾 Belarus</option>
-                                <option value="md">🇲🇩 Moldova</option>
-                                <option value="am">🇦🇲 Armenia</option>
-                                <option value="ge">🇬🇪 Georgia</option>
-                                <option value="az">🇦🇿 Azerbaijan</option>
-                                <option value="rs">🇷🇸 Serbia</option>
-                                <option value="al">🇦🇱 Albania</option>
-                                <option value="mk">🇲🇰 North Macedonia</option>
-                                <option value="me">🇲🇪 Montenegro</option>
-                                <option value="ba">🇧🇦 Bosnia & Herzegovina</option>
-                                </optgroup>
-                                <!-- North America -->
-                                <optgroup label="── North America ──">
-                                <option value="us">🇺🇸 United States</option>
-                                <option value="ca">🇨🇦 Canada</option>
-                                <option value="mx">🇲🇽 Mexico</option>
-                                </optgroup>
-                                <!-- East Asia -->
-                                <optgroup label="── East Asia ──">
-                                <option value="cn">🇨🇳 China</option>
-                                <option value="jp">🇯🇵 Japan</option>
-                                <option value="kr">🇰🇷 South Korea</option>
-                                <option value="tw">🇹🇼 Taiwan</option>
-                                <option value="hk">🇭🇰 Hong Kong</option>
-                                <option value="sg">🇸🇬 Singapore</option>
-                                <option value="mn">🇲🇳 Mongolia</option>
-                                </optgroup>
-                                <!-- South & Southeast Asia -->
-                                <optgroup label="── South & SE Asia ──">
                                 <option value="in">🇮🇳 India</option>
-                                <option value="id">🇮🇩 Indonesia</option>
-                                <option value="my">🇲🇾 Malaysia</option>
-                                <option value="th">🇹🇭 Thailand</option>
-                                <option value="vn">🇻🇳 Vietnam</option>
-                                <option value="ph">🇵🇭 Philippines</option>
-                                <option value="pk">🇵🇰 Pakistan</option>
-                                <option value="bd">🇧🇩 Bangladesh</option>
-                                <option value="lk">🇱🇰 Sri Lanka</option>
-                                <option value="np">🇳🇵 Nepal</option>
-                                </optgroup>
-                                <!-- Middle East -->
-                                <optgroup label="── Middle East ──">
-                                <option value="ae">🇦🇪 UAE</option>
-                                <option value="sa">🇸🇦 Saudi Arabia</option>
-                                <option value="il">🇮🇱 Israel</option>
-                                <option value="tr">🇹🇷 Türkiye</option>
-                                <option value="qa">🇶🇦 Qatar</option>
-                                <option value="kw">🇰🇼 Kuwait</option>
-                                <option value="jo">🇯🇴 Jordan</option>
-                                <option value="ir">🇮🇷 Iran</option>
-                                <option value="iq">🇮🇶 Iraq</option>
-                                <option value="om">🇴🇲 Oman</option>
-                                <option value="bh">🇧🇭 Bahrain</option>
-                                </optgroup>
-                                <!-- Africa -->
-                                <optgroup label="── Africa ──">
-                                <option value="za">🇿🇦 South Africa</option>
-                                <option value="ng">🇳🇬 Nigeria</option>
-                                <option value="ke">🇰🇪 Kenya</option>
-                                <option value="eg">🇪🇬 Egypt</option>
-                                <option value="ma">🇲🇦 Morocco</option>
-                                <option value="tn">🇹🇳 Tunisia</option>
-                                <option value="gh">🇬🇭 Ghana</option>
-                                <option value="et">🇪🇹 Ethiopia</option>
-                                <option value="tz">🇹🇿 Tanzania</option>
-                                <option value="rw">🇷🇼 Rwanda</option>
-                                <option value="sn">🇸🇳 Senegal</option>
-                                <option value="ci">🇨🇮 Côte d'Ivoire</option>
-                                </optgroup>
-                                <!-- Oceania -->
-                                <optgroup label="── Oceania ──">
-                                <option value="au">🇦🇺 Australia</option>
-                                <option value="nz">🇳🇿 New Zealand</option>
-                                </optgroup>
-                                <!-- Latin America -->
-                                <optgroup label="── Latin America ──">
-                                <option value="br">🇧🇷 Brazil</option>
-                                <option value="ar">🇦🇷 Argentina</option>
-                                <option value="cl">🇨🇱 Chile</option>
-                                <option value="co">🇨🇴 Colombia</option>
-                                <option value="pe">🇵🇪 Peru</option>
-                                <option value="uy">🇺🇾 Uruguay</option>
-                                <option value="ve">🇻🇪 Venezuela</option>
-                                <option value="ec">🇪🇨 Ecuador</option>
-                                </optgroup>
+                                <option value="de">🇩🇪 Germany</option>
+                                <option value="kr">🇰🇷 South Korea</option>
+                                <option value="jp">🇯🇵 Japan</option>
+                                <option value="ru">🇷🇺 Russia</option>
+                                <option value="kz">🇰🇿 Kazakhstan (Competitor)</option>
+                                <option value="uz">🇺🇿 Uzbekistan (Local)</option>
                             </select>
                             <i class="fa-solid fa-globe"></i>
                         </div>
