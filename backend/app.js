@@ -1000,11 +1000,9 @@ app.get('/news', async (req, res) => {
         if (topic) queryParts.push(topic);
         if (department) queryParts.push(department);
 
-        // Map country ISO codes → English names (used in search query)
+        // Map ISO codes → English names for search query
         const countryNames = {
-            // Central Asia
             uz:'Uzbekistan', kz:'Kazakhstan', kg:'Kyrgyzstan', tj:'Tajikistan', tm:'Turkmenistan',
-            // Europe
             gb:'United Kingdom', de:'Germany', fr:'France', nl:'Netherlands', se:'Sweden',
             fi:'Finland', dk:'Denmark', no:'Norway', ch:'Switzerland', at:'Austria',
             be:'Belgium', pl:'Poland', cz:'Czech Republic', es:'Spain', it:'Italy',
@@ -1014,32 +1012,39 @@ app.get('/news', async (req, res) => {
             cy:'Cyprus', ru:'Russia', ua:'Ukraine', by:'Belarus', md:'Moldova',
             am:'Armenia', ge:'Georgia', az:'Azerbaijan', rs:'Serbia', al:'Albania',
             mk:'North Macedonia', me:'Montenegro', ba:'Bosnia Herzegovina',
-            // North America
             us:'United States', ca:'Canada', mx:'Mexico',
-            // East Asia
-            cn:'China', jp:'Japan', kr:'South Korea', tw:'Taiwan', hk:'Hong Kong', sg:'Singapore', mn:'Mongolia',
-            // South & SE Asia
+            cn:'China', jp:'Japan', kr:'South Korea', tw:'Taiwan', hk:'Hong Kong',
+            sg:'Singapore', mn:'Mongolia',
             in:'India', id:'Indonesia', my:'Malaysia', th:'Thailand', vn:'Vietnam',
             ph:'Philippines', pk:'Pakistan', bd:'Bangladesh', lk:'Sri Lanka', np:'Nepal',
-            // Middle East
             ae:'UAE', sa:'Saudi Arabia', il:'Israel', tr:'Turkey', qa:'Qatar',
             kw:'Kuwait', jo:'Jordan', ir:'Iran', iq:'Iraq', om:'Oman', bh:'Bahrain',
-            // Africa
             za:'South Africa', ng:'Nigeria', ke:'Kenya', eg:'Egypt', ma:'Morocco',
             tn:'Tunisia', gh:'Ghana', et:'Ethiopia', tz:'Tanzania', rw:'Rwanda',
             sn:'Senegal', ci:'Cote Ivoire',
-            // Oceania
             au:'Australia', nz:'New Zealand',
-            // Latin America
             br:'Brazil', ar:'Argentina', cl:'Chile', co:'Colombia', pe:'Peru',
             uy:'Uruguay', ve:'Venezuela', ec:'Ecuador',
         };
-        if (country && countryNames[country]) queryParts.push(countryNames[country]);
 
-        let searchQuery = queryParts.length ? queryParts.join(' ') : 'Technology';
+        // Countries that have a real English Google News edition (gl+ceid work correctly)
+        const englishEditions = new Set([
+            'us','gb','au','ca','in','ie','za','nz','sg','ph','ng','ke','gh','my','pk','bd',
+            'ae','il','qa','bh','kw','jo','om'
+        ]);
 
-        // Google News geo-targeting: gl=country code, ceid=CC:en for English results
-        const googleGeo = country
+        const countryName = country ? (countryNames[country] || '') : '';
+        if (countryName) queryParts.push(countryName);
+
+        // If only country is selected (no keyword/topic), add tech context so results are relevant
+        const hasOtherFilter = keyword || topic || department;
+        if (country && !hasOtherFilter) queryParts.unshift('technology');
+
+        const searchQuery = queryParts.length ? queryParts.join(' ') : 'Technology';
+
+        // Use gl= only for countries with a real English Google News edition.
+        // For other countries, country name in the query is sufficient — invalid ceid returns no results.
+        const googleGeo = (country && englishEditions.has(country))
             ? `&gl=${country.toUpperCase()}&ceid=${country.toUpperCase()}:en`
             : '&gl=US&ceid=US:en';
         const googleUrl = `https://news.google.com/rss/search?q=${encodeURIComponent(searchQuery)}&hl=en-US${googleGeo}`;
