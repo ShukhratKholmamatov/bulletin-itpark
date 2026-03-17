@@ -335,7 +335,25 @@ app.post('/auth/login', authLimiter, (req, res, next) => {
 });
 
 app.get('/auth/google', passport.authenticate('google', { scope: ['profile', 'email'] }));
-app.get('/auth/google/callback', passport.authenticate('google', { failureRedirect: '/' }), (req, res) => res.redirect('/'));
+app.get('/auth/google/callback', (req, res, next) => {
+    passport.authenticate('google', (err, user, info) => {
+        if (err) {
+            console.error('Google OAuth error:', err);
+            return res.redirect('/?auth_error=1');
+        }
+        if (!user) {
+            console.warn('Google OAuth no user:', info);
+            return res.redirect('/?auth_error=1');
+        }
+        req.logIn(user, (err) => {
+            if (err) {
+                console.error('Google login session error:', err);
+                return res.redirect('/?auth_error=1');
+            }
+            return res.redirect('/');
+        });
+    })(req, res, next);
+});
 
 // Logout Fix for Cookie Session
 app.get('/auth/logout', (req, res) => {

@@ -15,39 +15,46 @@ module.exports = function(passport) {
     proxy: true
   },
   (accessToken, refreshToken, profile, done) => {
-    const googleId = profile.id;
-    const name = profile.displayName;
-    const email = profile.emails[0].value;
-    const photo_url = profile.photos[0].value;
+    try {
+      const googleId = profile.id;
+      const name = profile.displayName || 'Google User';
+      // Guard against missing email or photo from Google
+      const email = profile.emails && profile.emails[0] ? profile.emails[0].value : null;
+      const photo_url = profile.photos && profile.photos[0] ? profile.photos[0].value : null;
 
-    // First check if a user with this email already exists (e.g., registered manually)
-    db.get("SELECT id, name, email, department, role, photo_url, google_id, approval_status, employment_status FROM users WHERE email = ?", [email], (err, existing) => {
-      if (err) return done(err);
+      if (!email) return done(null, false, { message: 'No email returned from Google. Please allow email access.' });
 
-      if (existing) {
-        // User exists with this email — update their record with Google info
-        db.run("UPDATE users SET google_id = ?, name = ?, photo_url = ? WHERE id = ?",
-          [googleId, name, photo_url, existing.id], (err) => {
+      // First check if a user with this email already exists (e.g., registered manually)
+      db.get("SELECT id, name, email, department, role, photo_url, google_id, approval_status, employment_status FROM users WHERE email = ?", [email], (err, existing) => {
+        if (err) return done(err);
+
+        if (existing) {
+          // User exists — update with latest Google info
+          db.run("UPDATE users SET google_id = ?, name = ?, photo_url = COALESCE(?, photo_url) WHERE id = ?",
+            [googleId, name, photo_url, existing.id], (err) => {
+              if (err) return done(err);
+              return done(null, { ...existing, name, photo_url: photo_url || existing.photo_url, google_id: googleId });
+            });
+        } else {
+          // New Google user — insert
+          const sql = `
+            INSERT INTO users (id, name, email, photo_url, google_id)
+            VALUES (?, ?, ?, ?, ?)
+            ON CONFLICT(id) DO UPDATE SET
+              name = excluded.name,
+              photo_url = excluded.photo_url,
+              email = excluded.email,
+              google_id = excluded.google_id
+          `;
+          db.run(sql, [googleId, name, email, photo_url, googleId], (err) => {
             if (err) return done(err);
-            return done(null, { ...existing, name, photo_url, google_id: googleId });
+            return done(null, { id: googleId, name, email, photo_url, approval_status: 'pending' });
           });
-      } else {
-        // No existing user — insert new Google user
-        const sql = `
-          INSERT INTO users (id, name, email, photo_url, google_id)
-          VALUES (?, ?, ?, ?, ?)
-          ON CONFLICT(id) DO UPDATE SET
-            name = excluded.name,
-            photo_url = excluded.photo_url,
-            email = excluded.email,
-            google_id = excluded.google_id
-        `;
-        db.run(sql, [googleId, name, email, photo_url, googleId], (err) => {
-          if (err) return done(err);
-          return done(null, { id: googleId, name, email, photo_url, approval_status: 'pending' });
-        });
-      }
-    });
+        }
+      });
+    } catch (e) {
+      return done(e);
+    }
   }));
 
   // =====================================

@@ -2747,6 +2747,14 @@ function toggleGenerateButton() {
    🚀 INIT
 ========================= */
 window.onload = async () => {
+  // Show Google auth error if redirected back with ?auth_error=1
+  if (new URLSearchParams(window.location.search).get('auth_error') === '1') {
+    const errEl = document.getElementById('google-auth-error');
+    if (errEl) errEl.style.display = 'block';
+    // Clean the URL without reloading
+    window.history.replaceState({}, '', '/');
+  }
+
   await fetchCurrentUser();
   showTab('all');
 
