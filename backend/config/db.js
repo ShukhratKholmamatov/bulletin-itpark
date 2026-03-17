@@ -69,6 +69,13 @@ function initializeTables() {
             }
         });
 
+        // Migration: email verification columns
+        db.run(`ALTER TABLE users ADD COLUMN email_verified INTEGER DEFAULT 0`, () => {
+            // Auto-verify existing approved users so they're not locked out
+            db.run(`UPDATE users SET email_verified = 1 WHERE approval_status = 'approved'`);
+        });
+        db.run(`ALTER TABLE users ADD COLUMN email_verify_token TEXT`, () => {});
+
         // 2. SAVED NEWS TABLE
         db.run(`CREATE TABLE IF NOT EXISTS saved_news (
             id INTEGER PRIMARY KEY AUTOINCREMENT,

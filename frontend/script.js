@@ -104,6 +104,12 @@ async function fetchCurrentUser() {
             const user = await res.json();
             currentUser = user;
 
+            // Check email verification first
+            if (user.email_verified === 0) {
+                showVerifyEmailScreen(user);
+                return;
+            }
+
             // Check approval status
             if (user.approval_status === 'pending') {
                 showPendingApproval(user);
@@ -149,6 +155,19 @@ async function fetchCurrentUser() {
     } catch (err) {
         showLoginWall();
     }
+}
+
+function showVerifyEmailScreen(user) {
+    const overlay = document.getElementById('pending-overlay');
+    if (!overlay) return;
+    overlay.classList.remove('hidden', 'rejected');
+    document.getElementById('pending-name').textContent = user.name || '';
+    document.getElementById('pending-email').textContent = user.email || '';
+    document.querySelector('.pending-icon i').className = 'fa-solid fa-envelope-circle-check';
+    document.querySelector('.pending-card h2').textContent = 'Verify Your Email';
+    document.getElementById('pending-message').textContent = `A verification link has been sent to ${user.email}. Please check your inbox and click the link to continue.`;
+    if(document.getElementById('login-overlay')) document.getElementById('login-overlay').classList.add('hidden');
+    document.getElementById('app-wrapper').style.display = 'none';
 }
 
 function showPendingApproval(user) {
@@ -2774,12 +2793,18 @@ function toggleGenerateButton() {
    🚀 INIT
 ========================= */
 window.onload = async () => {
-  // Show Google auth error if redirected back with ?auth_error=1
-  if (new URLSearchParams(window.location.search).get('auth_error') === '1') {
+  const _qp = new URLSearchParams(window.location.search);
+  if (_qp.get('auth_error') === '1') {
     const errEl = document.getElementById('google-auth-error');
     if (errEl) errEl.style.display = 'block';
-    // Clean the URL without reloading
     window.history.replaceState({}, '', '/');
+  }
+  if (_qp.get('verify') === 'success') {
+    window.history.replaceState({}, '', '/');
+    setTimeout(() => alert('✅ Email verified! Your account is now awaiting admin approval.'), 400);
+  } else if (_qp.get('verify') === 'invalid') {
+    window.history.replaceState({}, '', '/');
+    setTimeout(() => alert('❌ Verification link is invalid or has already been used.'), 400);
   }
 
   await fetchCurrentUser();

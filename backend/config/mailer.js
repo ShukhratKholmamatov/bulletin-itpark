@@ -205,9 +205,27 @@ function trialWarningEmail(userName, daysLeft) {
     </div>`;
 }
 
+function verifyEmailTemplate(name, verifyUrl) {
+    return `
+    <div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;padding:20px;">
+        <div style="background:#2563eb;color:white;padding:20px;border-radius:8px 8px 0 0;text-align:center;">
+            <h1 style="margin:0;">IT Park Bulletin</h1>
+        </div>
+        <div style="padding:20px;background:#f9fafb;border:1px solid #e5e7eb;border-radius:0 0 8px 8px;">
+            <h2>Verify your email, ${name}</h2>
+            <p>Thank you for registering. Please click the button below to verify your email address:</p>
+            <div style="text-align:center;margin:24px 0;">
+                <a href="${verifyUrl}" style="background:#2563eb;color:white;padding:12px 32px;border-radius:6px;text-decoration:none;font-weight:bold;display:inline-block;">Verify Email</a>
+            </div>
+            <p style="color:#6b7280;font-size:0.85rem;">If you did not register, you can ignore this email. The link expires in 24 hours.</p>
+        </div>
+    </div>`;
+}
+
 module.exports = {
     sendMail,
     sendMailToMany,
+    verifyEmailTemplate,
     welcomeEmail,
     newUserAdminEmail,
     internApplyHREmail,

@@ -306,19 +306,49 @@ app.post('/auth/register', authLimiter, async (req, res) => {
         const newId = 'local_' + Date.now();
         const photoUrl = `https://ui-avatars.com/api/?name=${name}&background=7dba28&color=fff`;
 
-        const sql = `INSERT INTO users (id, name, email, password, department, photo_url, approval_status) VALUES (?, ?, ?, ?, ?, ?, 'pending')`;
-        db.run(sql, [newId, name, email, hash, department, photoUrl], function(err) {
+        // Trusted domain: auto-approve immediately, no email verification needed
+        const isTrusted = email.toLowerCase().endsWith('@outsource.gov.uz');
+        const approvalStatus = isTrusted ? 'approved' : 'pending';
+        const emailVerified = isTrusted ? 1 : 0;
+        const verifyToken = isTrusted ? null : crypto.randomBytes(32).toString('hex');
+
+        const sql = `INSERT INTO users (id, name, email, password, department, photo_url, approval_status, email_verified, email_verify_token) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`;
+        db.run(sql, [newId, name, email, hash, department, photoUrl, approvalStatus, emailVerified, verifyToken], function(err) {
             if (err) { console.error('DB Error:', err); return res.status(500).json({ error: 'Internal server error' }); }
-            const newUser = { id: newId, name, email, department, photo_url: photoUrl, approval_status: 'pending' };
-            // Email: welcome to user + notify admins
-            mailer.sendMail(email, 'Welcome to IT Park Bulletin', mailer.welcomeEmail(name));
-            db.all("SELECT email FROM users WHERE role = 'admin' AND approval_status = 'approved'", [], (e, admins) => {
-                if (admins && admins.length) mailer.sendMailToMany(admins.map(a => a.email), 'New User Registration', mailer.newUserAdminEmail(name, email, department));
+            const newUser = { id: newId, name, email, department, photo_url: photoUrl, approval_status: approvalStatus, email_verified: emailVerified };
+
+            if (isTrusted) {
+                // Auto-approved: just log them in
+                req.login(newUser, (err) => {
+                    if (err) return res.status(500).json({ error: 'Internal server error' });
+                    res.json(newUser);
+                });
+            } else {
+                // Send verification email; notify admins only after email is verified
+                const baseUrl = process.env.APP_URL || `${req.protocol}://${req.get('host')}`;
+                const verifyUrl = `${baseUrl}/auth/verify-email?token=${verifyToken}`;
+                mailer.sendMail(email, 'Verify your email — IT Park Bulletin', mailer.verifyEmailTemplate(name, verifyUrl));
+                req.login(newUser, (err) => {
+                    if (err) return res.status(500).json({ error: 'Internal server error' });
+                    res.json({ ...newUser, email_verified: 0 });
+                });
+            }
+        });
+    });
+});
+
+app.get('/auth/verify-email', (req, res) => {
+    const { token } = req.query;
+    if (!token) return res.redirect('/?verify=invalid');
+    db.get("SELECT * FROM users WHERE email_verify_token = ?", [token], (err, user) => {
+        if (err || !user) return res.redirect('/?verify=invalid');
+        db.run("UPDATE users SET email_verified = 1, email_verify_token = NULL WHERE id = ?", [user.id], (err2) => {
+            if (err2) return res.redirect('/?verify=error');
+            // Notify admins now that email is verified
+            db.all("SELECT email FROM users WHERE role = 'admin' AND approval_status = 'approved'", [], (_, admins) => {
+                if (admins && admins.length) mailer.sendMailToMany(admins.map(a => a.email), 'New User Registration', mailer.newUserAdminEmail(user.name, user.email, user.department));
             });
-            req.login(newUser, (err) => {
-                if (err) { console.error('DB Error:', err); return res.status(500).json({ error: 'Internal server error' }); }
-                res.json(newUser);
-            });
+            res.redirect('/?verify=success');
         });
     });
 });
