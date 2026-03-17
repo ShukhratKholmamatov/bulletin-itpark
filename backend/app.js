@@ -1000,44 +1000,24 @@ app.get('/news', async (req, res) => {
         if (topic) queryParts.push(topic);
         if (department) queryParts.push(department);
 
-        // Map ISO codes → English names for search query
-        const countryNames = {
-            uz:'Uzbekistan', kz:'Kazakhstan', kg:'Kyrgyzstan', tj:'Tajikistan', tm:'Turkmenistan',
-            gb:'United Kingdom', de:'Germany', fr:'France', nl:'Netherlands', se:'Sweden',
-            fi:'Finland', dk:'Denmark', no:'Norway', ch:'Switzerland', at:'Austria',
-            be:'Belgium', pl:'Poland', cz:'Czech Republic', es:'Spain', it:'Italy',
-            pt:'Portugal', ie:'Ireland', ee:'Estonia', lt:'Lithuania', lv:'Latvia',
-            hu:'Hungary', ro:'Romania', bg:'Bulgaria', hr:'Croatia', si:'Slovenia',
-            sk:'Slovakia', gr:'Greece', lu:'Luxembourg', is:'Iceland', mt:'Malta',
-            cy:'Cyprus', ru:'Russia', ua:'Ukraine', by:'Belarus', md:'Moldova',
-            am:'Armenia', ge:'Georgia', az:'Azerbaijan', rs:'Serbia', al:'Albania',
-            mk:'North Macedonia', me:'Montenegro', ba:'Bosnia Herzegovina',
-            us:'United States', ca:'Canada', mx:'Mexico',
-            cn:'China', jp:'Japan', kr:'South Korea', tw:'Taiwan', hk:'Hong Kong',
-            sg:'Singapore', mn:'Mongolia',
-            in:'India', id:'Indonesia', my:'Malaysia', th:'Thailand', vn:'Vietnam',
-            ph:'Philippines', pk:'Pakistan', bd:'Bangladesh', lk:'Sri Lanka', np:'Nepal',
-            ae:'UAE', sa:'Saudi Arabia', il:'Israel', tr:'Turkey', qa:'Qatar',
-            kw:'Kuwait', jo:'Jordan', ir:'Iran', iq:'Iraq', om:'Oman', bh:'Bahrain',
-            za:'South Africa', ng:'Nigeria', ke:'Kenya', eg:'Egypt', ma:'Morocco',
-            tn:'Tunisia', gh:'Ghana', et:'Ethiopia', tz:'Tanzania', rw:'Rwanda',
-            sn:'Senegal', ci:'Cote Ivoire',
-            au:'Australia', nz:'New Zealand',
-            br:'Brazil', ar:'Argentina', cl:'Chile', co:'Colombia', pe:'Peru',
-            uy:'Uruguay', ve:'Venezuela', ec:'Ecuador',
-        };
+        let googleUrl;
 
-        const countryName = country ? (countryNames[country] || '') : '';
-        if (countryName) queryParts.push(countryName);
+        if (country) {
+            const gl = country.toUpperCase();
+            const hasOtherFilter = keyword || topic || department;
 
-        // If only country is selected (no keyword/topic), add tech context so results are relevant
-        const hasOtherFilter = keyword || topic || department;
-        if (country && !hasOtherFilter) queryParts.unshift('technology');
-
-        const searchQuery = queryParts.length ? queryParts.join(' ') : 'Technology';
-
-        // Always use English US edition — country name in the query drives country-specific results
-        const googleUrl = `https://news.google.com/rss/search?q=${encodeURIComponent(searchQuery)}&hl=en-US&gl=US&ceid=US:en`;
+            if (hasOtherFilter) {
+                // Country + keyword/topic: use search query with country code for geo-targeting
+                const searchQuery = queryParts.join(' ');
+                googleUrl = `https://news.google.com/rss/search?q=${encodeURIComponent(searchQuery)}&hl=en-US&gl=${gl}&ceid=US:en`;
+            } else {
+                // Country only: use Google News geo headlines section — most reliable country-specific feed
+                googleUrl = `https://news.google.com/rss/headlines/section/geo/${gl}?hl=en-US&gl=${gl}&ceid=US:en`;
+            }
+        } else {
+            const searchQuery = queryParts.length ? queryParts.join(' ') : 'Technology';
+            googleUrl = `https://news.google.com/rss/search?q=${encodeURIComponent(searchQuery)}&hl=en-US&gl=US&ceid=US:en`;
+        }
 
         promises.push(parser.parseURL(googleUrl).then(feed => feed.items.map(item => {
             // Try to extract image from all possible RSS fields
