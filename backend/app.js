@@ -1000,13 +1000,48 @@ app.get('/news', async (req, res) => {
         if (topic) queryParts.push(topic);
         if (department) queryParts.push(department);
 
-        // Map country codes to names for better search results
-        const countryNames = { us: 'USA', gb: 'United Kingdom', in: 'India', de: 'Germany', kr: 'South Korea', jp: 'Japan', ru: 'Russia', kz: 'Kazakhstan', uz: 'Uzbekistan' };
+        // Map country ISO codes → English names (used in search query)
+        const countryNames = {
+            // Central Asia
+            uz:'Uzbekistan', kz:'Kazakhstan', kg:'Kyrgyzstan', tj:'Tajikistan', tm:'Turkmenistan',
+            // Europe
+            gb:'United Kingdom', de:'Germany', fr:'France', nl:'Netherlands', se:'Sweden',
+            fi:'Finland', dk:'Denmark', no:'Norway', ch:'Switzerland', at:'Austria',
+            be:'Belgium', pl:'Poland', cz:'Czech Republic', es:'Spain', it:'Italy',
+            pt:'Portugal', ie:'Ireland', ee:'Estonia', lt:'Lithuania', lv:'Latvia',
+            hu:'Hungary', ro:'Romania', bg:'Bulgaria', hr:'Croatia', si:'Slovenia',
+            sk:'Slovakia', gr:'Greece', lu:'Luxembourg', is:'Iceland', mt:'Malta',
+            cy:'Cyprus', ru:'Russia', ua:'Ukraine', by:'Belarus', md:'Moldova',
+            am:'Armenia', ge:'Georgia', az:'Azerbaijan', rs:'Serbia', al:'Albania',
+            mk:'North Macedonia', me:'Montenegro', ba:'Bosnia Herzegovina',
+            // North America
+            us:'United States', ca:'Canada', mx:'Mexico',
+            // East Asia
+            cn:'China', jp:'Japan', kr:'South Korea', tw:'Taiwan', hk:'Hong Kong', sg:'Singapore', mn:'Mongolia',
+            // South & SE Asia
+            in:'India', id:'Indonesia', my:'Malaysia', th:'Thailand', vn:'Vietnam',
+            ph:'Philippines', pk:'Pakistan', bd:'Bangladesh', lk:'Sri Lanka', np:'Nepal',
+            // Middle East
+            ae:'UAE', sa:'Saudi Arabia', il:'Israel', tr:'Turkey', qa:'Qatar',
+            kw:'Kuwait', jo:'Jordan', ir:'Iran', iq:'Iraq', om:'Oman', bh:'Bahrain',
+            // Africa
+            za:'South Africa', ng:'Nigeria', ke:'Kenya', eg:'Egypt', ma:'Morocco',
+            tn:'Tunisia', gh:'Ghana', et:'Ethiopia', tz:'Tanzania', rw:'Rwanda',
+            sn:'Senegal', ci:'Cote Ivoire',
+            // Oceania
+            au:'Australia', nz:'New Zealand',
+            // Latin America
+            br:'Brazil', ar:'Argentina', cl:'Chile', co:'Colombia', pe:'Peru',
+            uy:'Uruguay', ve:'Venezuela', ec:'Ecuador',
+        };
         if (country && countryNames[country]) queryParts.push(countryNames[country]);
 
         let searchQuery = queryParts.length ? queryParts.join(' ') : 'Technology';
 
-        const googleGeo = country && ['us','gb','in','de','kr','jp','ru'].includes(country) ? `&gl=${country.toUpperCase()}&ceid=${country.toUpperCase()}:en` : '&gl=US&ceid=US:en';
+        // Google News geo-targeting: gl=country code, ceid=CC:en for English results
+        const googleGeo = country
+            ? `&gl=${country.toUpperCase()}&ceid=${country.toUpperCase()}:en`
+            : '&gl=US&ceid=US:en';
         const googleUrl = `https://news.google.com/rss/search?q=${encodeURIComponent(searchQuery)}&hl=en-US${googleGeo}`;
 
         promises.push(parser.parseURL(googleUrl).then(feed => feed.items.map(item => {
