@@ -24,6 +24,46 @@ let isLoading = false;
 let selectedNews = [];
 const AUTO_REFRESH_MS = 10 * 60 * 1000;
 
+// Cached DOM refs (populated on first showTab call)
+let _dom = null;
+function getDOM() {
+    if (!_dom) {
+        _dom = {
+            news:      document.getElementById('news-container'),
+            stats:     document.getElementById('statistics-container'),
+            nla:       document.getElementById('nla-container'),
+            admin:     document.getElementById('admin-container'),
+            workspace: document.getElementById('workspace-container'),
+            hr:        document.getElementById('hr-container'),
+            personal:  document.getElementById('personal-container'),
+            filters:   document.getElementById('filters'),
+            tabTitle:  document.getElementById('tab-title'),
+            loadMore:  document.getElementById('load-more-container'),
+            sidebarBtns: document.querySelectorAll('.sidebar-nav button'),
+        };
+    }
+    return _dom;
+}
+
+// Stats subtab content cache — avoids rebuilding 200-row tables on every tab switch
+const _statsCache = {};
+
+// OG image fetch queue — limits concurrent requests to avoid flooding the server
+let _ogActive = 0;
+const _ogQueue = [];
+const OG_CONCURRENCY = 4;
+function _ogFetch(url, onResult) {
+    if (_ogActive < OG_CONCURRENCY) {
+        _ogActive++;
+        fetch(`/api/og-image?url=${encodeURIComponent(url)}`)
+            .then(r => r.json()).catch(() => ({}))
+            .then(data => { onResult(data); })
+            .finally(() => { _ogActive--; if (_ogQueue.length) { const n = _ogQueue.shift(); _ogFetch(n.url, n.cb); } });
+    } else {
+        _ogQueue.push({ url, cb: onResult });
+    }
+}
+
 // Chat state
 let _chatPanelOpen = false;
 let _chatMessages = [];
@@ -460,6 +500,12 @@ function renderStatistics(subTab) {
     const area = document.getElementById('stats-content-area');
     if (!area) return;
 
+    // Use cached HTML if available (avoids rebuilding large tables)
+    if (_statsCache[currentStatsTab]) {
+        area.innerHTML = _statsCache[currentStatsTab];
+        return;
+    }
+
     if (currentStatsTab === 'overview') {
         renderStatsOverview(area);
     } else if (currentStatsTab === 'startups') {
@@ -467,6 +513,7 @@ function renderStatistics(subTab) {
     } else {
         renderStatsIndex(area, currentStatsTab);
     }
+    _statsCache[currentStatsTab] = area.innerHTML;
 }
 
 function showStatsTab(subTab) {
@@ -2419,89 +2466,77 @@ function showTab(tab) {
   currentTab = tab;
   closeMobileSidebar();
 
+  const d = getDOM();
+
   // UI Update
-  document.querySelectorAll('.sidebar-nav button').forEach(b => b.classList.remove('active'));
+  d.sidebarBtns.forEach(b => b.classList.remove('active'));
   const btn = document.getElementById(`tab-${tab}`);
   if(btn) btn.classList.add('active');
 
-  // Get Containers
-  const newsContainer = document.getElementById('news-container');
-  const statsContainer = document.getElementById('statistics-container');
-  const nlaContainer = document.getElementById('nla-container');
-  const adminContainer = document.getElementById('admin-container');
-  const workspaceContainer = document.getElementById('workspace-container');
-  const hrContainer = document.getElementById('hr-container');
-  const personalContainer = document.getElementById('personal-container');
-
-  const filters = document.getElementById('filters');
-  const tabTitle = document.getElementById('tab-title');
-  const loadMore = document.getElementById('load-more-container');
-
   // Hide All
-  if(newsContainer) newsContainer.style.display = 'none';
-  if(statsContainer) statsContainer.style.display = 'none';
-  if(nlaContainer) nlaContainer.style.display = 'none';
-  if(adminContainer) adminContainer.style.display = 'none';
-  if(workspaceContainer) workspaceContainer.style.display = 'none';
-  if(hrContainer) hrContainer.style.display = 'none';
-  if(personalContainer) personalContainer.style.display = 'none';
-  if(filters) filters.style.display = 'flex';
-  if(loadMore) loadMore.style.display = 'none';
+  if(d.news)      d.news.style.display = 'none';
+  if(d.stats)     d.stats.style.display = 'none';
+  if(d.nla)       d.nla.style.display = 'none';
+  if(d.admin)     d.admin.style.display = 'none';
+  if(d.workspace) d.workspace.style.display = 'none';
+  if(d.hr)        d.hr.style.display = 'none';
+  if(d.personal)  d.personal.style.display = 'none';
+  if(d.filters)   d.filters.style.display = 'flex';
+  if(d.loadMore)  d.loadMore.style.display = 'none';
 
   // --- LOGIC PER TAB ---
 
   if (tab === 'statistics') {
-    if(tabTitle) tabTitle.innerText = 'Global IT & Digital Statistics';
-    if(statsContainer) statsContainer.style.display = 'block';
-    if(filters) filters.style.display = 'none';
-    renderStatistics('overview');
+    if(d.tabTitle) d.tabTitle.innerText = 'Global IT & Digital Statistics';
+    if(d.stats) d.stats.style.display = 'block';
+    if(d.filters) d.filters.style.display = 'none';
+    // Only render overview on first visit; subtab switches handled by showStatsTab
+    if (!_statsCache['overview']) renderStatistics('overview');
 
   } else if (tab === 'saved') {
-    if(tabTitle) tabTitle.innerText = 'Saved Bookmarks';
-    if(newsContainer) newsContainer.style.display = 'grid';
+    if(d.tabTitle) d.tabTitle.innerText = 'Saved Bookmarks';
+    if(d.news) d.news.style.display = 'grid';
     resetNews();
     loadNews();
 
   } else if (tab === 'nla') {
-    if(tabTitle) tabTitle.innerText = 'Normative Legal Acts';
-    if(nlaContainer) nlaContainer.style.display = 'block';
-    if(filters) filters.style.display = 'none';
-    if(nlaState.step === 0) renderNLA();
-    else renderNLA();
+    if(d.tabTitle) d.tabTitle.innerText = 'Normative Legal Acts';
+    if(d.nla) d.nla.style.display = 'block';
+    if(d.filters) d.filters.style.display = 'none';
+    renderNLA();
 
   } else if (tab === 'workspace') {
-    if(tabTitle) tabTitle.innerText = 'My Workspace';
-    if(workspaceContainer) workspaceContainer.style.display = 'block';
-    if(filters) filters.style.display = 'none';
+    if(d.tabTitle) d.tabTitle.innerText = 'My Workspace';
+    if(d.workspace) d.workspace.style.display = 'block';
+    if(d.filters) d.filters.style.display = 'none';
     loadWorkspace();
 
   } else if (tab === 'personal') {
-    if(tabTitle) tabTitle.innerText = 'Personal Information';
-    if(personalContainer) personalContainer.style.display = 'block';
-    if(filters) filters.style.display = 'none';
+    if(d.tabTitle) d.tabTitle.innerText = 'Personal Information';
+    if(d.personal) d.personal.style.display = 'block';
+    if(d.filters) d.filters.style.display = 'none';
     loadPersonalInfo();
 
   } else if (tab === 'hr') {
     if (!currentUser || (currentUser.department !== 'HR' && currentUser.role !== 'admin')) { showTab('all'); return; }
-    if(tabTitle) tabTitle.innerText = 'HR Management';
-    if(hrContainer) hrContainer.style.display = 'block';
-    if(filters) filters.style.display = 'none';
+    if(d.tabTitle) d.tabTitle.innerText = 'HR Management';
+    if(d.hr) d.hr.style.display = 'block';
+    if(d.filters) d.filters.style.display = 'none';
     loadHRDashboard();
 
   } else if (tab === 'admin') {
     if (!currentUser || currentUser.role !== 'admin') { showTab('all'); return; }
-    if(tabTitle) tabTitle.innerText = 'Admin Panel';
-    if(adminContainer) adminContainer.style.display = 'block';
-    if(filters) filters.style.display = 'none';
+    if(d.tabTitle) d.tabTitle.innerText = 'Admin Panel';
+    if(d.admin) d.admin.style.display = 'block';
+    if(d.filters) d.filters.style.display = 'none';
     loadAdminOverview();
 
   } else {
     // 'all' (News Feed)
-    if(tabTitle) tabTitle.innerText = 'News Feed';
-    if(newsContainer) newsContainer.style.display = 'grid';
-    if(loadMore) loadMore.style.display = 'block';
-    
-    if(newsContainer && newsContainer.children.length === 0) {
+    if(d.tabTitle) d.tabTitle.innerText = 'News Feed';
+    if(d.news) d.news.style.display = 'grid';
+    if(d.loadMore) d.loadMore.style.display = 'block';
+    if(d.news && d.news.children.length === 0) {
         resetNews();
         loadNews();
     }
@@ -2714,22 +2749,14 @@ function createCard(container, item) {
 
   container.appendChild(card);
 
-  // Lazy-load og:image if no image was provided
+  // Lazy-load og:image if no image was provided (queued to max 4 concurrent)
   if (!item.image && item.url) {
     const wrapper = card.querySelector('.card-image-wrapper');
-    fetch(`/api/og-image?url=${encodeURIComponent(item.url)}`)
-      .then(r => r.json())
-      .then(data => {
-        if (data.image) {
-          item.image = data.image;
-          wrapper.innerHTML = `<img src="${data.image}" onerror="handleImageError(this)">`;
-        } else {
-          wrapper.innerHTML = `<div style="width:100%;height:100%;background:#e2e8f0;display:flex;align-items:center;justify-content:center;color:#94a3b8;"><i class="fa-solid fa-image fa-2x"></i></div>`;
-        }
-      })
-      .catch(() => {
-        wrapper.innerHTML = `<div style="width:100%;height:100%;background:#e2e8f0;display:flex;align-items:center;justify-content:center;color:#94a3b8;"><i class="fa-solid fa-image fa-2x"></i></div>`;
-      });
+    const noImg = `<div style="width:100%;height:100%;background:#e2e8f0;display:flex;align-items:center;justify-content:center;color:#94a3b8;"><i class="fa-solid fa-image fa-2x"></i></div>`;
+    _ogFetch(item.url, data => {
+      if (data.image) { item.image = data.image; wrapper.innerHTML = `<img src="${data.image}" onerror="handleImageError(this)">`; }
+      else { wrapper.innerHTML = noImg; }
+    });
   }
 }
 

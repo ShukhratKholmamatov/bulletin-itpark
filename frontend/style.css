@@ -413,6 +413,8 @@ nav button.active { background: var(--primary); color: white; }
     display: flex;
     flex-direction: column;
     position: relative;
+    contain: layout style;
+    will-change: transform;
 }
 
 .news-card:hover {
@@ -530,6 +532,7 @@ nav button.active { background: var(--primary); color: white; }
     border-top: 4px solid var(--primary);
     border-radius: 50%;
     animation: spin 1s linear infinite;
+    will-change: transform;
 }
 
 /* =========================
