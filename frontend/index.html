@@ -163,12 +163,7 @@
                     <h1>IT Park Bulletin</h1>
                 </div>
 
-                <div id="user-info" class="user-profile-pill" style="display:none;">
-                    <div class="user-text">
-                        <span id="user-name" class="name">Loading...</span>
-                        <span id="user-dept" class="dept">General Dept</span>
-                    </div>
-                    <img id="user-avatar" src="" alt="Profile" class="avatar-img">
+                <div id="user-info" class="header-actions" style="display:none;">
                     <div class="notification-wrapper" id="notification-wrapper">
                         <button onclick="toggleNotificationPanel()" class="notification-bell-btn" title="Notifications" id="notification-bell">
                             <i class="fa-solid fa-bell"></i>
@@ -183,13 +178,6 @@
                             </div>
                         </div>
                     </div>
-                    <button onclick="toggleChatPanel()" class="chat-btn" title="Department Chat" id="chat-btn">
-                        <i class="fa-solid fa-comments"></i>
-                        <span class="chat-badge" id="chat-badge" style="display:none;"></span>
-                    </button>
-                    <button onclick="logout()" class="logout-mini-btn" title="Sign Out">
-                        <i class="fa-solid fa-right-from-bracket"></i>
-                    </button>
                 </div>
             </div>
         </header>
@@ -197,9 +185,16 @@
         <div class="main-wrapper">
             
             <aside class="sidebar" id="sidebar">
-                <button class="sidebar-toggle" onclick="toggleSidebar()" title="Toggle menu">
-                    <i class="fa-solid fa-bars"></i>
-                </button>
+                <div class="sidebar-user" id="sidebar-user">
+                    <img id="user-avatar" src="" alt="" class="sidebar-avatar">
+                    <div class="sidebar-user-text nav-label">
+                        <span id="user-name" class="name">User</span>
+                        <span id="user-dept" class="dept">Dept</span>
+                    </div>
+                    <button class="sidebar-collapse-btn" onclick="toggleSidebar()" title="Toggle menu">
+                        <i class="fa-solid fa-chevron-left"></i>
+                    </button>
+                </div>
                 <nav class="sidebar-nav">
                     <button onclick="showTab('all')" id="tab-all" class="active" title="News Feed">
                         <i class="fa-solid fa-globe"></i><span class="nav-label">News Feed</span>
@@ -234,7 +229,19 @@
                     </div>
                     <button id="generate-report-btn"><span class="nav-label">Generate PDF</span></button>
                 </div>
+
+                <div class="sidebar-bottom">
+                    <button onclick="showTab('personal')" class="sidebar-settings-btn" title="Settings">
+                        <i class="fa-solid fa-gear"></i><span class="nav-label">Settings</span>
+                    </button>
+                </div>
             </aside>
+
+            <!-- Floating Chat Bubble (bottom-right) -->
+            <button class="chat-fab" onclick="toggleChatPanel()" id="chat-btn" title="Department Chat">
+                <i class="fa-solid fa-comments"></i>
+                <span class="chat-fab-badge" id="chat-badge" style="display:none;"></span>
+            </button>
             <div class="mobile-overlay" id="mobile-overlay" onclick="toggleMobileSidebar()"></div>
 
             <section class="content-area">
@@ -649,6 +656,13 @@
                             <div id="personal-cert-list">
                                 <div style="text-align:center; padding:20px; color:var(--text-muted);">Loading certificates...</div>
                             </div>
+                        </div>
+
+                        <!-- Sign Out -->
+                        <div class="personal-card" style="grid-column: 1 / -1;">
+                            <button onclick="logout()" class="logout-full-btn">
+                                <i class="fa-solid fa-right-from-bracket"></i> Sign Out
+                            </button>
                         </div>
                     </div>
                 </div>
