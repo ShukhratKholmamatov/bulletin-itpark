@@ -186,12 +186,12 @@
             
             <aside class="sidebar" id="sidebar">
                 <div class="sidebar-user" id="sidebar-user">
-                    <img id="user-avatar" src="" alt="" class="sidebar-avatar">
-                    <div class="sidebar-user-text nav-label">
+                    <img id="user-avatar" src="" alt="" class="sidebar-avatar" onclick="var s=document.getElementById('sidebar');if(s&&s.classList.contains('collapsed'))toggleSidebar();">
+                    <div class="sidebar-user-text">
                         <span id="user-name" class="name">User</span>
                         <span id="user-dept" class="dept">Dept</span>
                     </div>
-                    <button class="sidebar-collapse-btn" onclick="toggleSidebar()" title="Toggle menu">
+                    <button class="sidebar-collapse-btn" onclick="toggleSidebar()" title="Collapse sidebar">
                         <i class="fa-solid fa-chevron-left"></i>
                     </button>
                 </div>

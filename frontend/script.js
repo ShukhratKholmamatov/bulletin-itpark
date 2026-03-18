@@ -76,8 +76,8 @@ let _chatPollInterval = null;
 function toggleSidebar() {
     const sidebar = document.getElementById('sidebar');
     if (!sidebar) return;
-    sidebar.classList.toggle('expanded');
-    localStorage.setItem('sidebar-expanded', sidebar.classList.contains('expanded') ? '1' : '0');
+    sidebar.classList.toggle('collapsed');
+    localStorage.setItem('sidebar-collapsed', sidebar.classList.contains('collapsed') ? '1' : '0');
 }
 function toggleMobileSidebar() {
     const sidebar = document.getElementById('sidebar');
@@ -2799,10 +2799,10 @@ function toggleGenerateButton() {
    🚀 INIT
 ========================= */
 window.onload = async () => {
-  // Restore sidebar expanded state
-  if (localStorage.getItem('sidebar-expanded') === '1') {
+  // Restore sidebar collapsed state
+  if (localStorage.getItem('sidebar-collapsed') === '1') {
     const sb = document.getElementById('sidebar');
-    if (sb) sb.classList.add('expanded');
+    if (sb) sb.classList.add('collapsed');
   }
 
   const _qp = new URLSearchParams(window.location.search);
