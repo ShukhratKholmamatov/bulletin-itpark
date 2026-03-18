@@ -71,17 +71,23 @@ let _chatLastMessageId = 0;
 let _chatPollInterval = null;
 
 /* =========================
-   📱 MOBILE SIDEBAR
+   📱 SIDEBAR TOGGLE
 ========================= */
+function toggleSidebar() {
+    const sidebar = document.getElementById('sidebar');
+    if (!sidebar) return;
+    sidebar.classList.toggle('expanded');
+    localStorage.setItem('sidebar-expanded', sidebar.classList.contains('expanded') ? '1' : '0');
+}
 function toggleMobileSidebar() {
-    const sidebar = document.querySelector('.sidebar');
+    const sidebar = document.getElementById('sidebar');
     const overlay = document.getElementById('mobile-overlay');
     if (!sidebar) return;
     sidebar.classList.toggle('mobile-open');
     if (overlay) overlay.classList.toggle('active');
 }
 function closeMobileSidebar() {
-    const sidebar = document.querySelector('.sidebar');
+    const sidebar = document.getElementById('sidebar');
     const overlay = document.getElementById('mobile-overlay');
     if (sidebar) sidebar.classList.remove('mobile-open');
     if (overlay) overlay.classList.remove('active');
@@ -2793,6 +2799,12 @@ function toggleGenerateButton() {
    🚀 INIT
 ========================= */
 window.onload = async () => {
+  // Restore sidebar expanded state
+  if (localStorage.getItem('sidebar-expanded') === '1') {
+    const sb = document.getElementById('sidebar');
+    if (sb) sb.classList.add('expanded');
+  }
+
   const _qp = new URLSearchParams(window.location.search);
   if (_qp.get('auth_error') === '1') {
     const errEl = document.getElementById('google-auth-error');

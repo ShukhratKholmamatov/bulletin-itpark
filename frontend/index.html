@@ -196,40 +196,43 @@
 
         <div class="main-wrapper">
             
-            <aside class="sidebar">
+            <aside class="sidebar" id="sidebar">
+                <button class="sidebar-toggle" onclick="toggleSidebar()" title="Toggle menu">
+                    <i class="fa-solid fa-bars"></i>
+                </button>
                 <nav class="sidebar-nav">
-                    <button onclick="showTab('all')" id="tab-all" class="active">
-                        <i class="fa-solid fa-globe"></i> News Feed
+                    <button onclick="showTab('all')" id="tab-all" class="active" title="News Feed">
+                        <i class="fa-solid fa-globe"></i><span class="nav-label">News Feed</span>
                     </button>
-                    <button onclick="showTab('saved')" id="tab-saved">
-                        <i class="fa-solid fa-bookmark"></i> Saved Items
+                    <button onclick="showTab('saved')" id="tab-saved" title="Saved Items">
+                        <i class="fa-solid fa-bookmark"></i><span class="nav-label">Saved Items</span>
                     </button>
-                    <button onclick="showTab('workspace')" id="tab-workspace">
-                        <i class="fa-solid fa-briefcase"></i> My Workspace
+                    <button onclick="showTab('workspace')" id="tab-workspace" title="My Workspace">
+                        <i class="fa-solid fa-briefcase"></i><span class="nav-label">My Workspace</span>
                     </button>
-                    <button onclick="showTab('statistics')" id="tab-statistics">
-                        <i class="fa-solid fa-chart-bar"></i> Statistics
+                    <button onclick="showTab('statistics')" id="tab-statistics" title="Statistics">
+                        <i class="fa-solid fa-chart-bar"></i><span class="nav-label">Statistics</span>
                     </button>
-                    <button onclick="showTab('nla')" id="tab-nla">
-                        <i class="fa-solid fa-gavel"></i> Legislation (NLA)
+                    <button onclick="showTab('nla')" id="tab-nla" title="Legislation">
+                        <i class="fa-solid fa-gavel"></i><span class="nav-label">Legislation (NLA)</span>
                     </button>
-                    <button onclick="showTab('personal')" id="tab-personal">
-                        <i class="fa-solid fa-user-gear"></i> Personal Info
+                    <button onclick="showTab('personal')" id="tab-personal" title="Personal Info">
+                        <i class="fa-solid fa-user-gear"></i><span class="nav-label">Personal Info</span>
                     </button>
-                    <button onclick="showTab('hr')" id="tab-hr" style="display:none;">
-                        <i class="fa-solid fa-people-roof"></i> HR Management
+                    <button onclick="showTab('hr')" id="tab-hr" style="display:none;" title="HR Management">
+                        <i class="fa-solid fa-people-roof"></i><span class="nav-label">HR Management</span>
                     </button>
-                    <button onclick="showTab('admin')" id="tab-admin" style="display:none;">
-                        <i class="fa-solid fa-shield-halved"></i> Admin Panel
+                    <button onclick="showTab('admin')" id="tab-admin" style="display:none;" title="Admin Panel">
+                        <i class="fa-solid fa-shield-halved"></i><span class="nav-label">Admin Panel</span>
                     </button>
                 </nav>
 
                 <div class="report-box" id="report-actions">
                     <div class="report-info">
                         <i class="fa-solid fa-file-pdf"></i>
-                        <span>Selected for Report</span>
+                        <span class="nav-label">Selected for Report</span>
                     </div>
-                    <button id="generate-report-btn">Generate PDF</button>
+                    <button id="generate-report-btn"><span class="nav-label">Generate PDF</span></button>
                 </div>
             </aside>
             <div class="mobile-overlay" id="mobile-overlay" onclick="toggleMobileSidebar()"></div>
