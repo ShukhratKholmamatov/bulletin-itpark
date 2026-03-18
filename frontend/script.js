@@ -113,12 +113,16 @@ async function fetchCurrentUser() {
             // Check email verification first
             if (user.email_verified === 0) {
                 showVerifyEmailScreen(user);
+                // Re-check every 10s in case they verify
+                setTimeout(() => fetchCurrentUser(), 10000);
                 return;
             }
 
             // Check approval status
             if (user.approval_status === 'pending') {
                 showPendingApproval(user);
+                // Re-check every 10s in case admin approves
+                setTimeout(() => fetchCurrentUser(), 10000);
                 return;
             }
             if (user.approval_status === 'rejected') {
